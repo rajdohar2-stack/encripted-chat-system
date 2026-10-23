@@ -1,0 +1,828 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#173a31">
+    <title>Encrypted records — Commonroom</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+    <style>
+         :root {
+            color-scheme: light;
+            --ink: #173a31;
+            --soft: #536a60;
+            --paper: #f4f6ef;
+            --surface: #fffefa;
+            --line: #dce4d9;
+            --green: #bddc76;
+            --deep: #2e6250;
+            font-family: "DM Sans", sans-serif;
+            color: var(--ink);
+            background: var(--paper);
+        }
+        
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            background: radial-gradient(ellipse at 8% 0%, rgb(189 220 118 / 18%), transparent 28%), var(--paper);
+        }
+        
+        body {
+            min-width: 320px;
+            min-height: 100vh;
+            margin: 0;
+            background: radial-gradient(ellipse at 2% 0%, rgb(189 220 118 / 18%), transparent 25%), var(--paper);
+        }
+        
+        button,
+        input,
+        select {
+            font: inherit;
+        }
+        
+        button,
+        a {
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            min-height: 66px;
+            padding: 0 clamp(16px, 4vw, 52px);
+            border-bottom: 1px solid var(--line);
+            background: rgb(255 254 250 / 90%);
+        }
+        
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--ink);
+            font: 800 16px Manrope, sans-serif;
+            text-decoration: none;
+        }
+        
+        .mark {
+            display: grid;
+            place-items: center;
+            width: 33px;
+            height: 33px;
+            border-radius: 10px 10px 10px 3px;
+            background: var(--green);
+            font-size: 18px;
+        }
+        
+        .top-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: var(--soft);
+            font-size: 12px;
+        }
+        
+        .back-link {
+            color: var(--deep);
+            font-weight: 700;
+            text-decoration: none;
+        }
+        
+        .page {
+            width: min(1280px, 100%);
+            margin: 0 auto;
+            padding: 30px clamp(14px, 3.5vw, 42px) 56px;
+        }
+        
+        .heading-row {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 18px;
+            margin: 4px 0 22px;
+        }
+        
+        .eyebrow {
+            margin: 0 0 8px;
+            color: var(--deep);
+            font: 500 10px "DM Mono", monospace;
+            letter-spacing: .7px;
+            text-transform: uppercase;
+        }
+        
+        h1 {
+            margin: 0;
+            font: 700 clamp(25px, 4vw, 38px)/1.1 Manrope, sans-serif;
+        }
+        
+        .subtitle {
+            max-width: 640px;
+            margin: 9px 0 0;
+            color: var(--soft);
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        
+        .status {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            border: 1px solid var(--line);
+            border-radius: 20px;
+            padding: 8px 11px;
+            background: #fffefa;
+            color: var(--soft);
+            font: 500 10px "DM Mono", monospace;
+            white-space: nowrap;
+        }
+        
+        .status::before {
+            content: "";
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #8da18f;
+        }
+        
+        .status.connected::before {
+            background: #6b9a54;
+        }
+        
+        .notice {
+            display: flex;
+            gap: 11px;
+            align-items: flex-start;
+            margin-bottom: 18px;
+            border: 1px solid #e0e8d5;
+            border-left: 3px solid #89a65f;
+            padding: 11px 13px;
+            background: #f8faF2;
+            color: #53685a;
+            font-size: 11px;
+            line-height: 1.5;
+        }
+        
+        .notice strong {
+            color: var(--ink);
+        }
+
+        .summary-cards {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
+            margin: 0 0 18px;
+        }
+
+        .summary-card {
+            border: 1px solid var(--line);
+            border-radius: 7px;
+            padding: 14px 16px;
+            background: var(--surface);
+            box-shadow: 0 8px 24px rgb(32 58 45 / 5%);
+            transition: transform .18s ease, box-shadow .18s ease;
+        }
+
+        .summary-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 28px rgb(32 58 45 / 9%);
+        }
+
+        .summary-card span {
+            display: block;
+            color: var(--soft);
+            font-size: 10px;
+        }
+
+        .summary-card strong {
+            display: block;
+            margin-top: 5px;
+            font: 700 23px Manrope, sans-serif;
+        }
+
+        .records-heading {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 12px;
+            margin: 0 0 9px;
+        }
+
+        .records-heading h2 {
+            margin: 0;
+            font: 700 15px Manrope, sans-serif;
+        }
+
+        .records-heading span {
+            color: var(--soft);
+            font-size: 10px;
+        }
+        
+        .toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 10px;
+            padding: 13px 14px;
+            border: 1px solid var(--line);
+            border-bottom: 0;
+            background: #f9faf5;
+        }
+
+        .toolbar input[type="search"] {
+            width: min(230px, 100%);
+        }
+
+        .toolbar select {
+            max-width: 260px;
+        }
+        
+        .toolbar label {
+            color: #62756a;
+            font-size: 11px;
+            font-weight: 700;
+        }
+        
+        select,
+        input {
+            min-height: 37px;
+            border: 1px solid #cbd6cc;
+            border-radius: 5px;
+            padding: 8px 10px;
+            background: var(--surface);
+            color: var(--ink);
+            outline: none;
+        }
+        
+        select {
+            width: min(410px, 100%);
+            flex: 1;
+        }
+        
+        select:focus,
+        input:focus {
+            border-color: var(--deep);
+            box-shadow: 0 0 0 3px rgb(46 98 80 / 10%);
+        }
+        
+        .button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 7px;
+            min-height: 36px;
+            border: 1px solid var(--line);
+            border-radius: 5px;
+            padding: 8px 11px;
+            background: var(--surface);
+            color: var(--ink);
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: 700;
+            text-decoration: none;
+        }
+        
+        .button:hover {
+            border-color: #aabca8;
+            background: #f5f8ef;
+            transform: translateY(-1px);
+        }
+
+        .button {
+            transition: transform .15s ease, background .15s ease, border-color .15s ease;
+        }
+        
+        .button.primary {
+            border-color: var(--ink);
+            background: var(--ink);
+            color: white;
+        }
+        
+        .button:disabled {
+            opacity: .55;
+            cursor: wait;
+        }
+        
+        .count {
+            margin-left: auto;
+            color: #738177;
+            font: 400 10px "DM Mono", monospace;
+        }
+        
+        .table-wrap {
+            overflow: auto;
+            border: 1px solid var(--line);
+            background: var(--surface);
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+        
+        th {
+            position: sticky;
+            top: 0;
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--line);
+            background: #f5f7f1;
+            color: #728177;
+            font: 500 9px "DM Mono", monospace;
+            letter-spacing: .4px;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+        
+        td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #edf0e9;
+            color: #405b4f;
+            font-size: 11px;
+            vertical-align: middle;
+        }
+        
+        tbody tr {
+            cursor: pointer;
+            transition: background .12s ease;
+        }
+        
+        tbody tr:hover {
+            background: #f7f9f3;
+        }
+        
+        tbody tr.selected {
+            background: #edf3e6;
+        }
+        
+        td.mono {
+            max-width: 230px;
+            overflow: hidden;
+            font: 400 10px "DM Mono", monospace;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .kind {
+            display: inline-flex;
+            border: 1px solid #dce7d0;
+            border-radius: 15px;
+            padding: 4px 7px;
+            background: #f5f8ef;
+            color: #526b4b;
+            font: 500 9px "DM Mono", monospace;
+            text-transform: uppercase;
+        }
+
+        .kind.image {
+            border-color: #f0d9c8;
+            background: #fff6ed;
+            color: #9a5a32;
+        }
+
+        .kind.text {
+            border-color: #dce7d0;
+            background: #f5f8ef;
+            color: #526b4b;
+        }
+        
+        .empty {
+            padding: 32px 15px;
+            color: #78877d;
+            text-align: center;
+            font-size: 12px;
+        }
+        
+        .load-row {
+            display: flex;
+            justify-content: center;
+            padding: 12px;
+            border: 1px solid var(--line);
+            border-top: 0;
+            background: #fbfcf8;
+        }
+        
+        .details {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(250px, .72fr);
+            gap: 14px;
+            margin-top: 16px;
+        }
+        
+        .detail-panel {
+            min-width: 0;
+            border: 1px solid var(--line);
+            background: var(--surface);
+        }
+        
+        .panel-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 11px 13px;
+            border-bottom: 1px solid var(--line);
+            background: #f9faf5;
+        }
+        
+        .panel-head h2 {
+            overflow: hidden;
+            margin: 0;
+            font: 700 12px Manrope, sans-serif;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .panel-body {
+            min-height: 115px;
+            max-height: 360px;
+            overflow: auto;
+            padding: 12px 13px;
+        }
+        
+        pre {
+            margin: 0;
+            color: #315346;
+            font: 400 10px/1.6 "DM Mono", monospace;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+        }
+        
+        .placeholder {
+            display: grid;
+            min-height: 115px;
+            place-items: center;
+            padding: 18px;
+            color: #839087;
+            text-align: center;
+            font-size: 11px;
+            line-height: 1.5;
+        }
+        
+        .hidden {
+            display: none !important;
+        }
+        
+        .toast {
+            position: fixed;
+            right: 18px;
+            bottom: 18px;
+            z-index: 5;
+            max-width: min(380px, calc(100vw - 36px));
+            border-radius: 5px;
+            padding: 11px 14px;
+            background: var(--ink);
+            color: white;
+            box-shadow: 0 10px 35px rgb(0 0 0 / 20%);
+            font-size: 11px;
+        }
+        
+        @media(max-width:760px) {
+            .summary-cards {
+                grid-template-columns: 1fr;
+            }
+            .toolbar input[type="search"],
+            .toolbar select {
+                width: 100%;
+                max-width: none;
+            }
+            .heading-row {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+            .details {
+                grid-template-columns: 1fr;
+            }
+            .count {
+                margin-left: 0;
+            }
+            th,
+            td {
+                padding: 9px 8px;
+            }
+            .topbar {
+                min-height: 58px;
+            }
+            .page {
+                padding-top: 22px;
+            }
+        }
+        
+        @media(prefers-reduced-motion:reduce) {
+            *,
+            *::before,
+            *::after {
+                scroll-behavior: auto !important;
+                transition: none !important;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <header class="topbar">
+        <a class="brand" href="index.html"><span class="mark">c.</span><span>commonroom</span></a>
+        <div class="top-actions"><span id="identityLabel">Local administrator</span><a class="back-link" href="index.html">Back to chat</a></div>
+    </header>
+    <main class="page">
+        <div class="heading-row">
+            <div>
+                <p class="eyebrow">Message storage</p>
+                <h1>Encrypted records</h1>
+                <p class="subtitle">Inspect the exact encrypted payload saved by the server. Message text is not decrypted on this page.</p>
+                <p id="databaseLocation" class="subtitle">Available only from this PC; no admin key is required.</p>
+            </div>
+            <span id="storeStatus" class="status">Checking server</span>
+        </div>
+        <div class="notice"><span aria-hidden="true">i</span>
+            <div><strong>Local administrator viewer.</strong> This separate page shows ciphertext, IVs, wrapped AES keys, and message metadata. It is restricted to connections from this PC and does not require an admin key. Anyone with an account on this PC can use it. Open it at <code>https://127.0.0.1:5000/encrypted-messages.html</code>.</div>
+        </div>
+        <section class="summary-cards" aria-label="Storage summary">
+            <article class="summary-card"><span>Conversations</span><strong id="conversationTotal">—</strong></article>
+            <article class="summary-card"><span>Loaded records</span><strong id="loadedTotal">0</strong></article>
+            <article class="summary-card"><span>Image records</span><strong id="imageTotal">0</strong></article>
+        </section>
+        <section aria-label="Message records">
+            <div class="records-heading">
+                <h2>Message records</h2>
+                <span>Choose a row to inspect its encrypted payload</span>
+            </div>
+            <div class="toolbar">
+                <label for="conversationSelect">Conversation</label>
+                <select id="conversationSelect" disabled><option value="">Loading conversations</option></select>
+                <input id="recordSearch" type="search" placeholder="Search sender or record ID" aria-label="Search records" disabled>
+                <select id="kindFilter" aria-label="Filter by message type" disabled>
+                    <option value="all">All types</option>
+                    <option value="text">Text</option>
+                    <option value="image">Images</option>
+                </select>
+                <button id="refreshButton" class="button" type="button" disabled>Refresh</button>
+                <span id="recordCount" class="count">0 records</span>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Record ID</th>
+                            <th>Time</th>
+                            <th>Sender</th>
+                            <th>Kind</th>
+                            <th>Ciphertext size</th>
+                        </tr>
+                    </thead>
+                    <tbody id="recordRows">
+                        <tr>
+                            <td class="empty" colspan="5">Loading encrypted message records.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="load-row"><button id="loadMoreButton" class="button hidden" type="button">Load more records</button></div>
+        </section>
+        <section class="details" aria-label="Selected encrypted message details">
+            <article class="detail-panel">
+                <header class="panel-head">
+                    <h2>Encrypted message payload</h2><button id="copyRecordButton" class="button" type="button" disabled>Copy JSON</button></header>
+                <div id="recordDetail" class="panel-body">
+                    <div class="placeholder">Select a message record above to inspect its encrypted fields.</div>
+                </div>
+            </article>
+            <article class="detail-panel">
+                <header class="panel-head">
+                    <h2>Encrypted key envelopes</h2><button id="copyEnvelopesButton" class="button" type="button" disabled>Copy</button></header>
+                <div id="envelopeDetail" class="panel-body">
+                    <div class="placeholder">Each chat member's RSA-wrapped AES key appears here.</div>
+                </div>
+            </article>
+        </section>
+    </main>
+    <div id="toast" class="toast hidden" role="status"></div>
+    <script>
+        const API = `https://${window.location.hostname}:5000/api`;
+        const $ = (selector) => document.querySelector(selector);
+        const state = {
+            conversations: [],
+            messages: [],
+            cursor: "0",
+            selectedMessage: null,
+            loading: false,
+            search: "",
+            kind: "all"
+        };
+
+        async function api(path, options = {}) {
+            const headers = new Headers(options.headers || {});
+            if (options.body) headers.set("Content-Type", "application/json");
+            let response;
+            try {
+                response = await fetch(`${API}${path}`, {...options,
+                    headers
+                });
+            } catch {
+                throw new Error("Can't connect to the API. Make sure 'Run encrypted chat API' is running and trust the local certificate at %USERPROFILE%\\.commonroom\\lan-root-ca.crt, then reload.");
+            }
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data.error || `Request failed (${response.status}).`);
+            return data;
+        }
+
+        function showToast(message) {
+            const toast = $("#toast");
+            toast.textContent = message;
+            toast.classList.remove("hidden");
+            clearTimeout(showToast.timer);
+            showToast.timer = setTimeout(() => toast.classList.add("hidden"), 2600);
+        }
+
+        function escapeText(value) {
+            return String(value === null || value === undefined ? "" : value);
+        }
+        async function copyValue(value) {
+            try {
+                await navigator.clipboard.writeText(value);
+                showToast("Copied encrypted data.");
+            } catch {
+                showToast("Clipboard is unavailable in this browser context.");
+            }
+        }
+        async function checkStore() {
+            try {
+                const result = await fetch(`${API}/health`).then((response) => response.json());
+                const label = $("#storeStatus");
+                label.textContent = result.message_store === "firebase" ? "Firebase Realtime Database" : "Local SQLite database";
+                label.classList.add("connected");
+            } catch {
+                $("#storeStatus").textContent = "Server unavailable";
+            }
+        }
+        async function loadConversations() {
+            const storage = await api("/admin/status");
+            $("#databaseLocation").textContent = storage.database_file ? `Separate encrypted-message database: ${storage.database_file}` : "Messages are stored in Firebase Realtime Database. Viewer access is limited to this PC.";
+            const result = await api("/admin/conversations");
+            state.conversations = result.conversations;
+            $("#conversationTotal").textContent = state.conversations.length.toLocaleString();
+            $("#identityLabel").textContent = "Administrator";
+            const select = $("#conversationSelect");
+            select.replaceChildren();
+            const placeholder = document.createElement("option");
+            placeholder.value = "";
+            placeholder.textContent = state.conversations.length ? "Choose a conversation" : "No conversations found";
+            select.append(placeholder);
+            for (const conversation of state.conversations) {
+                const option = document.createElement("option");
+                option.value = conversation.id;
+                option.textContent = `${conversation.title} · ${conversation.members.length} members`;
+                select.append(option);
+            }
+            select.disabled = state.conversations.length === 0;
+            $("#recordSearch").disabled = state.conversations.length === 0;
+            $("#kindFilter").disabled = state.conversations.length === 0;
+            $("#refreshButton").disabled = false;
+            if (state.conversations.length) {
+                select.value = String(state.conversations[0].id);
+                await loadMessages(true);
+            } else renderRows();
+        }
+
+        function selectedConversation() {
+            return state.conversations.find((conversation) => String(conversation.id) === $("#conversationSelect").value);
+        }
+
+        function renderRows() {
+            const body = $("#recordRows");
+            body.replaceChildren();
+            const conversation = selectedConversation();
+            const messages = [...state.messages].sort((left, right) => new Date(`${right.created_at.replace(" ", "T")}Z`) - new Date(`${left.created_at.replace(" ", "T")}Z`));
+            const query = state.search.trim().toLocaleLowerCase();
+            const filtered = messages.filter((message) => {
+                const matchesKind = state.kind === "all" || message.kind === state.kind;
+                const searchable = `${message.id} ${message.sender_name || ""} ${message.sender_id || ""} ${message.kind || ""}`.toLocaleLowerCase();
+                return matchesKind && (!query || searchable.includes(query));
+            });
+            $("#recordCount").textContent = `${filtered.length} shown · ${state.messages.length} loaded`;
+            $("#loadedTotal").textContent = state.messages.length.toLocaleString();
+            $("#imageTotal").textContent = state.messages.filter((message) => message.kind === "image").length.toLocaleString();
+            if (!filtered.length) {
+                const row = document.createElement("tr");
+                const cell = document.createElement("td");
+                cell.className = "empty";
+                cell.colSpan = 5;
+                cell.textContent = !conversation ? "Choose a conversation to view its encrypted records." :
+                    state.messages.length ? "No records match these filters." : "No messages are stored in this conversation yet.";
+                row.append(cell);
+                body.append(row);
+                return;
+            }
+            for (const message of filtered) {
+                const row = document.createElement("tr");
+                row.dataset.id = String(message.id);
+                if (state.selectedMessage && String(state.selectedMessage.id) === String(message.id)) row.classList.add("selected");
+                const values = [String(message.id), message.created_at || "", message.sender_name || message.sender_id || "", message.kind || "unknown", `${new Intl.NumberFormat().format((message.ciphertext || "").length)} chars`];
+                values.forEach((value, index) => {
+                    const cell = document.createElement("td");
+                    cell.textContent = escapeText(value);
+                    if (index === 0 || index === 1) cell.className = "mono";
+                    if (index === 3) {
+                        const kind = document.createElement("span");
+                        kind.className = "kind";
+                        if (value === "image" || value === "text") kind.classList.add(value);
+                        kind.textContent = value;
+                        cell.replaceChildren(kind);
+                    }
+                    row.append(cell);
+                });
+                row.addEventListener("click", () => selectMessage(message));
+                body.append(row);
+            }
+        }
+
+        function selectMessage(message) {
+            state.selectedMessage = message;
+            renderRows();
+            const record = {
+                id: message.id,
+                conversation_id: message.conversation_id,
+                sender_id: message.sender_id,
+                sender_name: message.sender_name,
+                created_at: message.created_at,
+                kind: message.kind,
+                attachment_name: message.attachment_name,
+                iv: message.iv,
+                ciphertext: message.ciphertext
+            };
+            $("#recordDetail").replaceChildren();
+            const pre = document.createElement("pre");
+            pre.textContent = JSON.stringify(record, null, 2);
+            $("#recordDetail").append(pre);
+            $("#envelopeDetail").replaceChildren();
+            const envelopes = document.createElement("pre");
+            envelopes.textContent = JSON.stringify(message.envelopes || {}, null, 2);
+            $("#envelopeDetail").append(envelopes);
+            $("#copyRecordButton").disabled = false;
+            $("#copyEnvelopesButton").disabled = false;
+        }
+        async function loadMessages(reset) {
+            const conversation = selectedConversation();
+            if (!conversation || state.loading) return;
+            if (reset) {
+                state.messages = [];
+                state.cursor = "0";
+                state.selectedMessage = null;
+                $("#copyRecordButton").disabled = true;
+                $("#copyEnvelopesButton").disabled = true;
+                $("#recordDetail").innerHTML = '<div class="placeholder">Select a message record above to inspect its encrypted fields.</div>';
+                $("#envelopeDetail").innerHTML = '<div class="placeholder">Each chat member\'s RSA-wrapped AES key appears here.</div>';
+            }
+            state.loading = true;
+            $("#loadMoreButton").disabled = true;
+            try {
+                const result = await api(`/admin/conversations/${conversation.id}/messages?after=${encodeURIComponent(state.cursor)}`);
+                state.messages.push(...result.messages);
+                if (result.messages.length) state.cursor = String(result.messages[result.messages.length - 1].id);
+                renderRows();
+                $("#loadMoreButton").classList.toggle("hidden", result.messages.length < 100);
+            } catch (error) {
+                showToast(error.message);
+            } finally {
+                state.loading = false;
+                $("#loadMoreButton").disabled = false;
+            }
+        }
+        $("#conversationSelect").addEventListener("change", () => loadMessages(true));
+        $("#recordSearch").addEventListener("input", (event) => {
+            state.search = event.target.value;
+            renderRows();
+        });
+        $("#kindFilter").addEventListener("change", (event) => {
+            state.kind = event.target.value;
+            renderRows();
+        });
+        $("#refreshButton").addEventListener("click", async() => {
+            await loadConversations();
+            showToast("Records refreshed.");
+        });
+        $("#loadMoreButton").addEventListener("click", () => loadMessages(false));
+        $("#copyRecordButton").addEventListener("click", () => {
+            if (state.selectedMessage) copyValue(JSON.stringify(state.selectedMessage, null, 2));
+        });
+        $("#copyEnvelopesButton").addEventListener("click", () => {
+            if (state.selectedMessage) copyValue(JSON.stringify(state.selectedMessage.envelopes || {}, null, 2));
+        });
+
+        async function start() {
+            await checkStore();
+            try {
+                await loadConversations();
+            } catch (error) {
+                showToast(error.message);
+            }
+        }
+        start();
+    </script>
+</body>
+
+</html>

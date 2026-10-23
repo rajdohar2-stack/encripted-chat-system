@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#173a31">
+    <title>My encrypted messages — Commonroom</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --ink: #173a31;
+            --soft: #536a60;
+            --paper: #f4f6ef;
+            --surface: #fffefa;
+            --line: #dce4d9;
+            --deep: #2e6250;
+            --red: #a64e38;
+            font-family: "Segoe UI", sans-serif;
+            color: var(--ink);
+            background: var(--paper);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            min-width: 320px;
+            min-height: 100vh;
+            margin: 0;
+        }
+
+        button,
+        input,
+        select {
+            font: inherit;
+        }
+
+        .topbar,
+        main {
+            width: min(1080px, 100%);
+            margin: 0 auto;
+            padding: 16px;
+        }
+
+        .topbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--line);
+        }
+
+        a {
+            color: var(--deep);
+            font-weight: 700;
+        }
+
+        h1 {
+            margin-bottom: 8px;
+        }
+
+        p {
+            color: var(--soft);
+            line-height: 1.5;
+        }
+
+        .toolbar,
+        .login,
+        article {
+            margin: 16px 0;
+            border: 1px solid var(--line);
+            padding: 14px;
+            background: var(--surface);
+        }
+
+        .toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 10px;
+        }
+
+        select,
+        input,
+        button {
+            min-height: 38px;
+            padding: 8px 10px;
+        }
+
+        select {
+            min-width: min(360px, 100%);
+            flex: 1;
+        }
+
+        button {
+            border: 1px solid var(--line);
+            border-radius: 4px;
+            background: var(--surface);
+            color: var(--ink);
+            cursor: pointer;
+            font-weight: 700;
+        }
+
+        button:disabled {
+            cursor: default;
+            opacity: .55;
+        }
+
+        .primary {
+            background: var(--ink);
+            color: white;
+        }
+
+        .login {
+            display: grid;
+            width: min(420px, 100%);
+            gap: 10px;
+        }
+
+        .login label {
+            display: grid;
+            gap: 6px;
+        }
+
+        #status {
+            min-height: 1.5em;
+            color: var(--red);
+        }
+
+        .table-wrap {
+            overflow: auto;
+            border: 1px solid var(--line);
+            background: var(--surface);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+
+        th,
+        td {
+            padding: 10px;
+            border-bottom: 1px solid var(--line);
+            font-size: 13px;
+        }
+
+        th {
+            color: var(--soft);
+        }
+
+        tbody tr {
+            cursor: pointer;
+        }
+
+        tbody tr:hover,
+        tbody tr.selected {
+            background: #edf3e6;
+        }
+
+        pre {
+            overflow-wrap: anywhere;
+            white-space: pre-wrap;
+            color: var(--deep);
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+    <header class="topbar">
+        <a href="/">Commonroom</a>
+        <a href="/">Back to chat</a>
+    </header>
+    <main>
+        <h1>My encrypted messages</h1>
+        <p>Sign in to see ciphertext only for conversations your account belongs to. This page does not decrypt message text. Other members of a conversation can also access its encrypted records.</p>
+
+        <form id="loginForm" class="login">
+            <label>Username<input id="username" autocomplete="username" required></label>
+            <label>Password<input id="password" type="password" autocomplete="current-password" required></label>
+            <button id="loginButton" class="primary" type="submit">Sign in</button>
+        </form>
+        <div id="viewer" class="hidden">
+            <div class="toolbar">
+                <label for="conversationSelect">My conversations</label>
+                <select id="conversationSelect" disabled></select>
+                <button id="refreshButton" type="button">Refresh</button>
+                <button id="logoutButton" type="button">Sign out</button>
+            </div>
+            <p id="status" role="status"></p>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr><th>Record</th><th>Time</th><th>Sender</th><th>Kind</th><th>Ciphertext size</th></tr>
+                    </thead>
+                    <tbody id="records"></tbody>
+                </table>
+            </div>
+            <p><button id="loadMoreButton" type="button" class="hidden">Load more records</button></p>
+            <article>
+                <h2>Encrypted message payload</h2>
+                <button id="copyButton" type="button" disabled>Copy JSON</button>
+                <pre id="payload">Select a record to inspect its encrypted fields.</pre>
+            </article>
+        </div>
+    </main>
+    <script>
+        const API = `${window.location.origin}/api`;
+        const $ = (selector) => document.querySelector(selector);
+        const state = {
+            token: "",
+            conversations: [],
+            messages: [],
+            cursor: "0",
+            selected: null,
+            loading: false
+        };
+
+        async function api(path, options = {}) {
+            const headers = new Headers(options.headers || {});
+            if (state.token) headers.set("Authorization", `Bearer ${state.token}`);
+            if (options.body) headers.set("Content-Type", "application/json");
+            let response;
+            try {
+                response = await fetch(`${API}${path}`, { ...options, headers });
+            } catch {
+                throw new Error("Can't connect to the API. Make sure 'Run encrypted chat API' is running and trust the local certificate at %USERPROFILE%\\.commonroom\\lan-root-ca.crt, then reload.");
+            }
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data.error || `Request failed (${response.status}).`);
+            return data;
+        }
+
+        function selectedConversation() {
+            return state.conversations.find((item) => String(item.id) === $("#conversationSelect").value);
+        }
+
+        async function loadConversations() {
+            const result = await api("/conversations");
+            state.conversations = result.conversations;
+            const select = $("#conversationSelect");
+            select.replaceChildren();
+            for (const conversation of state.conversations) {
+                const option = document.createElement("option");
+                option.value = String(conversation.id);
+                option.textContent = conversation.title;
+                select.append(option);
+            }
+            select.disabled = !state.conversations.length;
+            if (state.conversations.length) {
+                select.value = String(state.conversations[0].id);
+                await loadMessages(true);
+            } else {
+                state.messages = [];
+                renderMessages();
+                $("#status").textContent = "No conversations found for this account.";
+            }
+        }
+
+        function renderMessages() {
+            const body = $("#records");
+            body.replaceChildren();
+            const sorted = [...state.messages].reverse();
+            if (!sorted.length) {
+                const row = document.createElement("tr");
+                const cell = document.createElement("td");
+                cell.colSpan = 5;
+                cell.textContent = "No encrypted messages in this conversation.";
+                row.append(cell);
+                body.append(row);
+                return;
+            }
+            for (const message of sorted) {
+                const row = document.createElement("tr");
+                row.classList.toggle("selected", state.selected && String(state.selected.id) === String(message.id));
+                const values = [
+                    String(message.id),
+                    message.created_at || "",
+                    message.sender_name || message.sender_id || "",
+                    message.kind || "unknown",
+                    `${(message.ciphertext || "").length.toLocaleString()} chars`
+                ];
+                for (const value of values) {
+                    const cell = document.createElement("td");
+                    cell.textContent = value;
+                    row.append(cell);
+                }
+                row.addEventListener("click", () => {
+                    state.selected = message;
+                    renderMessages();
+                    $("#payload").textContent = JSON.stringify(message, null, 2);
+                    $("#copyButton").disabled = false;
+                });
+                body.append(row);
+            }
+        }
+
+        async function loadMessages(reset) {
+            const conversation = selectedConversation();
+            if (!conversation || state.loading) return;
+            if (reset) {
+                state.messages = [];
+                state.cursor = "0";
+                state.selected = null;
+                $("#payload").textContent = "Select a record to inspect its encrypted fields.";
+                $("#copyButton").disabled = true;
+            }
+            state.loading = true;
+            $("#loadMoreButton").disabled = true;
+            $("#status").textContent = "Loading encrypted records…";
+            try {
+                const result = await api(`/conversations/${conversation.id}/messages?after=${encodeURIComponent(state.cursor)}`);
+                state.messages.push(...result.messages);
+                if (result.messages.length) state.cursor = String(result.messages[result.messages.length - 1].id);
+                renderMessages();
+                $("#loadMoreButton").classList.toggle("hidden", result.messages.length < 100);
+                $("#status").textContent = `${state.messages.length} encrypted record${state.messages.length === 1 ? "" : "s"}.`;
+            } catch (error) {
+                $("#status").textContent = error.message;
+            } finally {
+                state.loading = false;
+                $("#loadMoreButton").disabled = false;
+            }
+        }
+
+        $("#loginForm").addEventListener("submit", async (event) => {
+            event.preventDefault();
+            $("#loginButton").disabled = true;
+            $("#status").textContent = "";
+            try {
+                const result = await api("/login", {
+                    method: "POST",
+                    body: JSON.stringify({ username: $("#username").value.trim(), password: $("#password").value })
+                });
+                state.token = result.token;
+                $("#loginForm").classList.add("hidden");
+                $("#viewer").classList.remove("hidden");
+                await loadConversations();
+            } catch (error) {
+                $("#status").textContent = error.message;
+            } finally {
+                $("#loginButton").disabled = false;
+            }
+        });
+
+        $("#conversationSelect").addEventListener("change", () => loadMessages(true));
+        $("#refreshButton").addEventListener("click", () => loadConversations().catch((error) => {
+            $("#status").textContent = error.message;
+        }));
+        $("#loadMoreButton").addEventListener("click", () => loadMessages(false));
+        $("#copyButton").addEventListener("click", async () => {
+            if (!state.selected) return;
+            try {
+                await navigator.clipboard.writeText(JSON.stringify(state.selected, null, 2));
+                $("#status").textContent = "Encrypted record copied.";
+            } catch {
+                $("#status").textContent = "Clipboard is unavailable in this browser.";
+            }
+        });
+        $("#logoutButton").addEventListener("click", () => {
+            state.token = "";
+            state.conversations = [];
+            state.messages = [];
+            state.selected = null;
+            $("#viewer").classList.add("hidden");
+            $("#loginForm").classList.remove("hidden");
+            $("#password").value = "";
+            $("#status").textContent = "Signed out.";
+        });
+    </script>
+</body>
+
+</html>

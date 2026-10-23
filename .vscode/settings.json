@@ -1,0 +1,14 @@
+{
+  "terminal.integrated.env.windows": {
+    "PATH": "${env:PATH};C:\\Program Files\\Git\\cmd"
+  },
+  "liveServer.settings.ignoreFiles": [
+    ".vscode/**",
+    ".git/**",
+    "**/.venv/**",
+    "**/__pycache__/**",
+    "**/*.py",
+    "**/*.db",
+    "**/*.sqlite3"
+  ]
+}
