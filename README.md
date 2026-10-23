@@ -21,6 +21,18 @@ The app runs at `https://127.0.0.1:5000` on this PC and at the printed Wi-Fi add
 
 The PC must stay on, connected to the same Wi-Fi, and running the API task. This setup is for a trusted home/local network, not access from the public internet. The database and accounts are on that PC unless Firebase is separately configured.
 
+## Use the GitHub Pages site from anywhere
+
+GitHub Pages only serves static files; it does not run `server.py`. To use the chat from the public GitHub Pages URL, deploy the API as a separate Render web service:
+
+1. Push this project to GitHub, then create a Render **Blueprint** using this repository and its `render.yaml`. The blueprint uses a paid Starter web service and a 1 GB persistent disk so accounts and SQLite messages survive restarts. Keep it to one service instance.
+2. After Render deploys, open the service URL ending in `.onrender.com` and check `/api/health` returns `{"ok": true, ...}`. The hosted API uses HTTPS provided by Render.
+3. Confirm the Render service has `COMMONROOM_ALLOWED_ORIGINS` set to the exact origin of your GitHub Pages site (for this repository it is `https://rajdohar2-stack.github.io`, without the repository path). If your GitHub username or Pages domain differs, update this value in `render.yaml` and redeploy.
+4. Set `window.COMMONROOM_API_URL` in `config.js` to the Render service's base URL, for example `https://encrypted-chat-api.onrender.com` (no `/api` suffix). This URL is public configuration, not a secret. Commit and push that change.
+5. Enable GitHub Pages for the repository from **Settings > Pages**, using the `main` branch and `/ (root)`. Open the Pages URL and create or sign in to an account there.
+
+The Render database starts empty; local Windows accounts and messages are not copied automatically. Existing accounts on another device need their encrypted key backup imported, and their account must exist on the hosted server. Do not commit `.env`, Firebase service-account files, or private keys. This prototype is not hardened for public production use; use test data until it has been security-reviewed and abuse protections have been added. The localhost-only encrypted-records viewer is intentionally unavailable through GitHub Pages or the public Render host.
+
 ## Use
 
 Create an account with a username and a password of at least 10 characters. Share your generated chat ID with people you want to find. Search for their username or ID to start a one-to-one conversation or add several people to a group. Starting a private chat with someone you have already chatted with opens the existing conversation; duplicate private chats are consolidated while preserving their messages. Messages and images up to 8 MiB are encrypted in the browser before upload.

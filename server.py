@@ -22,17 +22,31 @@ from flask import Flask, g, jsonify, request, send_file, send_from_directory
 from werkzeug.security import check_password_hash, generate_password_hash
 
 
-USER_DATA_DIR = Path.home() / ".commonroom"
+PROJECT_DIR = Path(__file__).resolve().parent
+load_dotenv(PROJECT_DIR / ".env")
+IS_HOSTED = (
+    os.getenv("COMMONROOM_HOSTED", "").strip().lower() == "true"
+    or os.getenv("RENDER", "").strip().lower() == "true"
+)
+USER_DATA_DIR = Path(
+    os.getenv("COMMONROOM_DATA_DIR", str(Path.home() / ".commonroom"))
+).expanduser()
 USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
 DATABASE = USER_DATA_DIR / "chat.db"
 MESSAGES_DATABASE = USER_DATA_DIR / "encrypted_messages.db"
-PROJECT_DIR = Path(__file__).resolve().parent
 TLS_CERT_PATH = USER_DATA_DIR / "lan-server.crt"
 TLS_KEY_PATH = USER_DATA_DIR / "lan-server.key"
 TLS_CA_CERT_PATH = USER_DATA_DIR / "lan-root-ca.crt"
 TLS_CA_KEY_PATH = USER_DATA_DIR / "lan-root-ca.key"
-load_dotenv(Path(__file__).resolve().parent / ".env")
 FIREBASE_DATABASE_URL = os.getenv("FIREBASE_DATABASE_URL", "").strip()
+ALLOWED_ORIGINS = tuple(
+    origin.strip().rstrip("/")
+    for origin in os.getenv(
+        "COMMONROOM_ALLOWED_ORIGINS",
+        "" if IS_HOSTED else "*",
+    ).split(",")
+    if origin.strip()
+)
 FIREBASE_MESSAGES = None
 if FIREBASE_DATABASE_URL:
     import firebase_admin
@@ -165,7 +179,7 @@ def create_lan_certificates() -> str:
     return address
 
 
-LAN_ADDRESS = create_lan_certificates()
+LAN_ADDRESS = None if IS_HOSTED else create_lan_certificates()
 
 
 @contextmanager
@@ -315,10 +329,15 @@ def issue_session(db: sqlite3.Connection, user_id: str) -> str:
 
 @app.after_request
 def add_browser_headers(response):
-    if not request.path.startswith("/api/admin/"):
-        response.headers["Access-Control-Allow-Origin"] = "*"
+    origin = request.headers.get("Origin", "").rstrip("/")
+    if not request.path.startswith("/api/admin/") and (
+        "*" in ALLOWED_ORIGINS or origin in ALLOWED_ORIGINS
+    ):
+        response.headers["Access-Control-Allow-Origin"] = "*" if "*" in ALLOWED_ORIGINS else origin
         response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type"
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
+        if "*" not in ALLOWED_ORIGINS:
+            response.vary.add("Origin")
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "SAMEORIGIN"
     response.headers["Cache-Control"] = "no-store"
@@ -361,6 +380,11 @@ def database_page():
 @app.get("/my-encrypted.html")
 def my_encrypted_page():
     return send_from_directory(PROJECT_DIR, "my-encrypted.html")
+
+
+@app.get("/config.js")
+def frontend_config():
+    return send_from_directory(PROJECT_DIR, "config.js", mimetype="application/javascript")
 
 
 @app.get("/lan-root-ca.crt")
@@ -783,6 +807,9 @@ def file_too_large(_error):
 initialize_db()
 
 if __name__ == "__main__":
-    print(f"Commonroom HTTPS: https://{LAN_ADDRESS}:5000/")
-    print(f"Install this public CA certificate on trusted devices: {TLS_CA_CERT_PATH}")
-    app.run(host="0.0.0.0", port=5000, debug=False, ssl_context=(TLS_CERT_PATH, TLS_KEY_PATH))
+    if IS_HOSTED:
+        app.run(host="0.0.0.0", port=int(os.getenv("PORT", "10000")), debug=False)
+    else:
+        print(f"Commonroom HTTPS: https://{LAN_ADDRESS}:5000/")
+        print(f"Install this public CA certificate on trusted devices: {TLS_CA_CERT_PATH}")
+        app.run(host="0.0.0.0", port=5000, debug=False, ssl_context=(TLS_CERT_PATH, TLS_KEY_PATH))

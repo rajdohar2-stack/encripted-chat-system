@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: encrypted-chat-api
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn server:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120
+    healthCheckPath: /api/health
+    disk:
+      name: encrypted-chat-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: COMMONROOM_HOSTED
+        value: "true"
+      - key: COMMONROOM_DATA_DIR
+        value: /var/data
+      - key: COMMONROOM_ALLOWED_ORIGINS
+        value: https://rajdohar2-stack.github.io
+      - key: PYTHON_VERSION
+        value: 3.13.4

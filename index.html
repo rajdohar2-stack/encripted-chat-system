@@ -1304,8 +1304,13 @@
     <div id="modalRoot"></div>
     <div id="toastRoot" aria-live="polite"></div>
 
+    <script src="./config.js"></script>
     <script>
-        const API = `https://${window.location.hostname}:5000/api`;
+        const API_BASE = window.COMMONROOM_API_URL?.trim() ||
+            (window.location.hostname.endsWith(".github.io") ? "" :
+                window.location.hostname.endsWith(".onrender.com") ? window.location.origin :
+                    `https://${window.location.hostname}:5000`);
+        const API = API_BASE ? `${API_BASE.replace(/\/+$/, "")}/api` : "";
         const $ = (selector) => document.querySelector(selector);
         const state = {
             mode: "login",
@@ -1362,6 +1367,7 @@
             })[char]);
         }
         async function api(path, options = {}) {
+            if (!API) throw new Error("This GitHub Pages site is not connected to a chat API yet. Set COMMONROOM_API_URL in config.js to your Render service URL, then reload.");
             const headers = new Headers(options.headers || {});
             if (state.token) headers.set("Authorization", `Bearer ${state.token}`);
             if (options.body && !(options.body instanceof FormData)) headers.set("Content-Type", "application/json");
