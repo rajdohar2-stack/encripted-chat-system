@@ -50,12 +50,27 @@ ALLOWED_ORIGINS = tuple(
 FIREBASE_MESSAGES = None
 if FIREBASE_DATABASE_URL:
     import firebase_admin
-    from firebase_admin import db as firebase_db
+    from firebase_admin import credentials as firebase_credentials, db as firebase_db
+
+    cred = None
+    cred_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
+    if cred_path:
+        resolved_cred = Path(cred_path).resolve()
+        if resolved_cred.exists():
+            try:
+                cred = firebase_credentials.Certificate(str(resolved_cred))
+            except Exception as e:
+                print(f"ERROR: Could not load service account from {cred_path}: {e}", flush=True)
+        else:
+            print(f"WARNING: GOOGLE_APPLICATION_CREDENTIALS file not found at: {cred_path}", flush=True)
 
     try:
         firebase_admin.get_app()
     except ValueError:
-        firebase_admin.initialize_app(options={"databaseURL": FIREBASE_DATABASE_URL})
+        if cred:
+            firebase_admin.initialize_app(cred, options={"databaseURL": FIREBASE_DATABASE_URL})
+        else:
+            firebase_admin.initialize_app(options={"databaseURL": FIREBASE_DATABASE_URL})
     FIREBASE_MESSAGES = firebase_db
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 12 * 1024 * 1024
@@ -395,7 +410,17 @@ def download_lan_ca():
 
 @app.get("/api/health")
 def health():
-    return jsonify({"ok": True, "message_store": "firebase" if FIREBASE_MESSAGES else "local"})
+    if FIREBASE_MESSAGES:
+        cred_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
+        cred_exists = Path(cred_path).exists() if cred_path else False
+        return jsonify({
+            "ok": True,
+            "message_store": "firebase",
+            "firebase_cred_path": cred_path,
+            "firebase_cred_exists": cred_exists,
+            "firebase_db_url": FIREBASE_DATABASE_URL[:45] + "..." if len(FIREBASE_DATABASE_URL) > 45 else FIREBASE_DATABASE_URL,
+        })
+    return jsonify({"ok": True, "message_store": "local"})
 
 
 def local_admin_error():
@@ -802,6 +827,14 @@ def send_message(conversation_id: int):
 @app.errorhandler(413)
 def file_too_large(_error):
     return jsonify(error="Upload is too large. Images must be 8 MB or smaller."), 413
+
+
+@app.errorhandler(Exception)
+def handle_unexpected_error(error):
+    import traceback
+    traceback.print_exc()
+    error_msg = str(error) or error.__class__.__name__
+    return jsonify(error=f"Server error: {error_msg}"), 500
 
 
 initialize_db()
