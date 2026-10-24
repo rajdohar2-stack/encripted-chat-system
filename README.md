@@ -1,60 +1,99 @@
 # Commonroom
 
-A Python chat prototype with browser-side end-to-end encryption, user IDs, group conversations, and encrypted image sharing. Messages are written to Firebase Realtime Database when configured, or to local SQLite otherwise.
+A Python chat system with browser-side **End-to-End Encryption (E2EE)**, unique 8-character user IDs, 1-on-1 and group conversations, and encrypted image sharing (up to 8 MB). 
 
-## Start it in VS Code
+All messages, attachments, and private keys are encrypted directly inside the browser using the native **Web Crypto API** (`RSA-OAEP`, `AES-256-GCM`, `PBKDF2`). The server and database operate under zero knowledge and never have access to plaintext messages or private keys.
 
-1. Install the dependencies once: `python -m pip install -r requirements.txt` (use the workspace interpreter; `.venv` is already created here).
-2. Configure Firebase as described below to store messages in the cloud.
-3. Start the API from **Terminal > Run Task > Run encrypted chat API**.
-4. Open the HTTPS address printed by the task. The API serves the chat and records viewer as well as handling messages.
+---
 
-The app runs at `https://127.0.0.1:5000` on this PC and at the printed Wi-Fi address for other devices. Keep the API task running while chatting. The local certificate must be trusted by the browser for encryption to work. On this PC, install `%USERPROFILE%\.commonroom\lan-root-ca.crt` as a trusted CA certificate (**Current User > Trusted Root Certification Authorities**) and restart the browser tab. The root CA stays the same when your Wi-Fi IP changes; only the server certificate is renewed.
+## Live Deployment
 
-## Use another device on the same Wi-Fi
+* **Frontend (GitHub Pages)**: [https://rajdohar2-stack.github.io/encripted-chat-system/](https://rajdohar2-stack.github.io/encripted-chat-system/)
+* **Backend API (Render)**: `https://encripted-chat-system.onrender.com`
+* **Health Check**: [https://encripted-chat-system.onrender.com/api/health](https://encripted-chat-system.onrender.com/api/health)
 
-1. Start **Run encrypted chat API** on this PC. It prints the current HTTPS address and certificate location. Open the exact `https://<Wi-Fi-IP>:5000/` address printed by the task on devices connected to the same Wi-Fi. The Wi-Fi IP may change after reconnecting.
-2. On the PC, find `%USERPROFILE%\.commonroom\lan-root-ca.crt` and transfer that public certificate to the other device using USB or another trusted method. Never transfer `lan-root-ca.key` or `lan-server.key`.
-3. Install `lan-root-ca.crt` as a trusted CA certificate on the other device (Android: **Settings > Security > Encryption & credentials > Install a certificate > CA certificate**; iPhone/iPad: install the certificate profile, then enable trust under **Settings > General > About > Certificate Trust Settings**; Windows: open the `.crt` file, choose **Install Certificate > Current User > Place all certificates in Trusted Root Certification Authorities**).
-4. Open the HTTPS address printed by the server. If Windows Firewall asks whether Python can accept local-network connections, allow it on **Private networks only**.
-5. Sign in with your existing account. Import your encrypted key backup on that device before signing in if it needs to decrypt your old messages.
+---
 
-The PC must stay on, connected to the same Wi-Fi, and running the API task. This setup is for a trusted home/local network, not access from the public internet. The database and accounts are on that PC unless Firebase is separately configured.
+## Key Features & Recent Improvements
 
-## Use the GitHub Pages site from anywhere
+1. **Full Cloud Persistence (Render Free Tier Friendly)**:
+   * **Messages**: Stored in Firebase Realtime Database under `/conversations/{id}/messages/`.
+   * **Accounts & Conversations**: User profiles, conversations, and membership relations are automatically backed up to Firebase under `/accounts/users/`, `/accounts/conversations/`, and `/accounts/members/`.
+   * **Auto-Restore on Startup**: When Render containers sleep or redeploy, `server.py` automatically pulls existing users and conversations from Firebase back into SQLite on boot.
+   * **On-Demand Login Sync**: If an account exists in Firebase but hasn't reached the local container yet, `login()` automatically imports the user and authenticates without error.
+2. **Simplified Cloud Authentication (`FIREBASE_CREDENTIALS_JSON`)**:
+   * Credentials can be passed directly as an environment variable (`FIREBASE_CREDENTIALS_JSON`) containing the raw service-account JSON, or via file path (`GOOGLE_APPLICATION_CREDENTIALS`).
+3. **Diagnostic Health Check**:
+   * Visiting `/api/health` reports status, message store, credential availability (`firebase_cred_exists`), and credential source (`env_json` vs `file`).
+4. **Transparent JSON Error Handling**:
+   * Server exceptions return clear JSON error descriptions (`{"error": "Server error: ..."}`) and log full tracebacks to stdout/stderr, replacing opaque generic failure messages.
 
-GitHub Pages only serves static files; it does not run `server.py`. To use the chat from the public GitHub Pages URL, deploy the API as a separate Render web service:
+---
 
-1. Push this project to GitHub, then create a Render **Blueprint** using this repository and its `render.yaml`. The blueprint uses a paid Starter web service and a 1 GB persistent disk so accounts and SQLite messages survive restarts. Keep it to one service instance.
-2. After Render deploys, open the service URL ending in `.onrender.com` and check `/api/health` returns `{"ok": true, ...}`. The hosted API uses HTTPS provided by Render.
-3. Confirm the Render service has `COMMONROOM_ALLOWED_ORIGINS` set to the exact origin of your GitHub Pages site (for this repository it is `https://rajdohar2-stack.github.io`, without the repository path). If your GitHub username or Pages domain differs, update this value in `render.yaml` and redeploy.
-4. Set `window.COMMONROOM_API_URL` in `config.js` to the Render service's base URL, for example `https://encrypted-chat-api.onrender.com` (no `/api` suffix). This URL is public configuration, not a secret. Commit and push that change.
-5. Enable GitHub Pages for the repository from **Settings > Pages**, using the `main` branch and `/ (root)`. Open the Pages URL and create or sign in to an account there.
+## How It Works (Cryptographic Architecture)
 
-The Render database starts empty; local Windows accounts and messages are not copied automatically. Existing accounts on another device need their encrypted key backup imported, and their account must exist on the hosted server. Do not commit `.env`, Firebase service-account files, or private keys. This prototype is not hardened for public production use; use test data until it has been security-reviewed and abuse protections have been added. The localhost-only encrypted-records viewer is intentionally unavailable through GitHub Pages or the public Render host.
+* **Key Generation**: 2048-bit **RSA-OAEP** key pair (SHA-256) generated in the browser on registration. Public key is uploaded as JWK; private key never leaves the client in plaintext.
+* **Local Password Vault**: RSA private key is encrypted locally using **AES-256-GCM** with a key derived via **PBKDF2** (310,000 SHA-256 iterations) and stored in browser `localStorage`.
+* **Per-Message Hybrid Encryption**: For every message or image:
+  1. A fresh 256-bit **AES-256-GCM** key and 12-byte IV are generated.
+  2. The message/image bytes are encrypted with this AES key.
+  3. The AES key is wrapped separately for each conversation member using their RSA-OAEP public key, creating an `envelopes` map.
+  4. Only ciphertext, IV, and envelopes are transmitted to the server.
+* **Decryption**: Recipient unwraps their key envelope using their private RSA key, then decrypts the ciphertext using AES-GCM.
 
-## Use
+---
 
-Create an account with a username and a password of at least 10 characters. Share your generated chat ID with people you want to find. Search for their username or ID to start a one-to-one conversation or add several people to a group. Starting a private chat with someone you have already chatted with opens the existing conversation; duplicate private chats are consolidated while preserving their messages. Messages and images up to 8 MiB are encrypted in the browser before upload.
+## Local Setup & Development (Windows)
 
-Use **Backup** to download an encrypted copy of the private key. On another browser, import that file before signing in with the same account password. Without the private key backup, messages for that account cannot be decrypted on another device. Keep the backup private.
+### 1. Install Dependencies
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
 
-Open `https://127.0.0.1:5000/encrypted-messages.html` on the server PC to inspect encrypted message records in a separate viewer (`/database.html` remains an alias). No admin key is required: both the page and its admin APIs reject connections that do not originate from this PC or from another website. Do not use the server's Wi-Fi IP or share this viewer URL; access is intentionally limited to localhost and is not tied to a specific Windows account. The viewer can inspect ciphertext, IVs, encrypted key envelopes, and metadata across all conversations; it does not decrypt message text.
+### 2. Run the Server
+```powershell
+python server.py
+```
+* Runs locally at `https://127.0.0.1:5000` (and prints your Wi-Fi LAN address for local network testing).
+* On first run, it generates a local Certificate Authority (`%USERPROFILE%\.commonroom\lan-root-ca.crt`). Install this certificate into **Current User > Trusted Root Certification Authorities** to avoid browser HTTPS warnings.
 
-For a ciphertext-only view limited to conversations your chat account belongs to, open `/my-encrypted.html` and sign in with your chat account. It works independently of the localhost-only administrator viewer and cannot show conversations the account is not a member of. Other members can also access ciphertext for their shared conversations; readable message text still requires a participant's private key.
+---
 
-Account profiles, public keys, login sessions, and conversation membership are stored in `%USERPROFILE%\.commonroom\chat.db` on Windows. Local encrypted message records are kept separately in `%USERPROFILE%\.commonroom\encrypted_messages.db`; existing records are migrated on API startup. When Firebase is configured, new encrypted messages are stored under `conversations/{conversation_id}/messages/{push_id}` in Realtime Database instead. Message contents and private keys are never uploaded in plaintext.
+## Internet Deployment (GitHub Pages + Render)
 
-## Firebase setup
+### Backend Deployment (Render)
+1. Create a new **Web Service** on [Render](https://dashboard.render.com/) pointing to this repository.
+2. Set build and start commands:
+   * **Build Command**: `pip install -r requirements.txt`
+   * **Start Command**: `gunicorn server:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120`
+3. Add Environment Variables:
+   * `COMMONROOM_HOSTED`: `true`
+   * `COMMONROOM_ALLOWED_ORIGINS`: `https://rajdohar2-stack.github.io`
+   * `FIREBASE_DATABASE_URL`: `https://your-project-id-default-rtdb.<region>.firebasedatabase.app`
+   * `FIREBASE_CREDENTIALS_JSON`: *(Paste the entire contents of your Firebase service-account JSON file)*
+   * `PYTHON_VERSION`: `3.13.4`
 
-1. Create a Firebase project and enable **Realtime Database**.
-2. Create a service account for the server in Firebase project settings and download its JSON key outside this workspace. Do not commit or share that key.
-3. Copy `.env.example` to `.env` and set `FIREBASE_DATABASE_URL` to the database URL shown in Firebase, and `GOOGLE_APPLICATION_CREDENTIALS` to the full path of the downloaded service-account JSON file.
-4. Install dependencies again using `python -m pip install -r requirements.txt`, then restart **Run encrypted chat API**.
-5. Open `https://127.0.0.1:5000/api/health`; `message_store` should say `firebase`. If it says `local`, Firebase isn't configured and messages are still stored locally.
+### Frontend Deployment (GitHub Pages)
+1. In `config.js`, set your Render API base URL:
+   ```javascript
+   window.COMMONROOM_API_URL = "https://encripted-chat-system.onrender.com";
+   ```
+2. In GitHub repository **Settings > Pages**, enable Pages using the `main` branch and `/ (root)`.
 
-The server uses Firebase Admin credentials, which bypass client database rules. Keep the service-account JSON private and never add it to the frontend. This prototype keeps account and conversation membership data local to the host PC, so Firebase only synchronizes messages for users/conversations known to this API's SQLite database.
+---
 
-## Security scope
+## Using the Chat & Managing Private Keys
 
-RSA-OAEP with SHA-256 wraps a fresh AES-256-GCM key per message; AES-GCM encrypts text and image bytes. The private RSA key is encrypted locally with a password-derived key and is not uploaded. This is a development prototype: the API is exposed to the local network, does not verify public-key fingerprints, and is not hardened for internet deployment. Do not port-forward it to the public internet; remote access needs a production HTTPS host, shared account/conversation storage, key verification, abuse controls, and an audited server.
+* **Registration & Login**: Create an account with a username and password (minimum 10 characters). Share your 8-character chat ID to let others start a conversation with you.
+* **New Devices & Incognito Tabs (Key Backup)**:
+  * Because private keys stay on your device, logging into a new browser or Incognito tab requires importing your private key backup.
+  * In your active browser, click **Backup** (bottom-left) to download `commonroom-key-<ID>.json`.
+  * On the new device / Incognito window, click **Import backup** on the sign-in screen, select the file, and enter your password.
+* **Auditing & Viewing Encrypted Payloads**:
+  1. **In-Chat Toggle**: Click **"Show encrypted"** in the top chat header bar to view the raw JSON ciphertext payload of any message.
+  2. **My Encrypted Records**: Open `/my-encrypted.html` on any device to inspect raw encrypted message records for your conversations.
+  3. **Localhost Admin Dashboard**: When running locally, visit `https://127.0.0.1:5000/encrypted-messages.html` (`database.html`) to inspect ciphertext, IVs, and envelopes across all conversations (blocked on public hosting for security).
+  4. **Firebase Console**: Realtime Database inspectable live in the Firebase console under `/conversations` and `/accounts`.
