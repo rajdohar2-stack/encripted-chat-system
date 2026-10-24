@@ -249,6 +249,7 @@ def initialize_db() -> None:
             """
         )
     initialize_messages_db()
+    sync_accounts_with_firebase()
 
 
 def initialize_messages_db() -> None:
@@ -302,6 +303,87 @@ def initialize_messages_db() -> None:
 
     with connect_db() as account_db:
         account_db.execute("DROP TABLE messages")
+
+
+def sync_accounts_with_firebase() -> None:
+    if not FIREBASE_MESSAGES:
+        return
+    try:
+        fb_users = FIREBASE_MESSAGES.reference("accounts/users").get() or {}
+        fb_conversations = FIREBASE_MESSAGES.reference("accounts/conversations").get() or {}
+        fb_members = FIREBASE_MESSAGES.reference("accounts/members").get() or {}
+
+        with connect_db() as db:
+            if isinstance(fb_users, dict):
+                for uid, udata in fb_users.items():
+                    if isinstance(udata, dict) and "username" in udata and "password_hash" in udata:
+                        db.execute(
+                            "INSERT OR IGNORE INTO users (id, username, password_hash, public_key, created_at) "
+                            "VALUES (?, ?, ?, ?, ?)",
+                            (
+                                str(udata.get("id", uid)),
+                                str(udata["username"]),
+                                str(udata["password_hash"]),
+                                str(udata["public_key"]) if isinstance(udata["public_key"], str) else json.dumps(udata["public_key"]),
+                                str(udata.get("created_at", datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"))),
+                            ),
+                        )
+
+            if isinstance(fb_conversations, dict):
+                for cid, cdata in fb_conversations.items():
+                    if isinstance(cdata, dict) and "id" in cdata:
+                        db.execute(
+                            "INSERT OR IGNORE INTO conversations (id, title, created_at) VALUES (?, ?, ?)",
+                            (
+                                int(cdata["id"]),
+                                cdata.get("title"),
+                                str(cdata.get("created_at", datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"))),
+                            ),
+                        )
+
+            if isinstance(fb_members, dict):
+                for mdata in fb_members.values():
+                    if isinstance(mdata, dict) and "conversation_id" in mdata and "user_id" in mdata:
+                        db.execute(
+                            "INSERT OR IGNORE INTO members (conversation_id, user_id) VALUES (?, ?)",
+                            (int(mdata["conversation_id"]), str(mdata["user_id"])),
+                        )
+
+            # Two-way sync: push local users/conversations/members to Firebase if missing
+            local_users = db.execute("SELECT * FROM users").fetchall()
+            for u in local_users:
+                if isinstance(fb_users, dict) and u["id"] not in fb_users:
+                    FIREBASE_MESSAGES.reference(f"accounts/users/{u['id']}").set({
+                        "id": u["id"],
+                        "username": u["username"],
+                        "password_hash": u["password_hash"],
+                        "public_key": u["public_key"],
+                        "created_at": u["created_at"],
+                    })
+
+            local_convs = db.execute("SELECT * FROM conversations").fetchall()
+            for c in local_convs:
+                cid_str = str(c["id"])
+                if isinstance(fb_conversations, dict) and cid_str not in fb_conversations:
+                    FIREBASE_MESSAGES.reference(f"accounts/conversations/{c['id']}").set({
+                        "id": c["id"],
+                        "title": c["title"],
+                        "created_at": c["created_at"],
+                    })
+
+            local_members = db.execute("SELECT * FROM members").fetchall()
+            members_to_push = {}
+            for m in local_members:
+                key = f"{m['conversation_id']}_{m['user_id']}"
+                if isinstance(fb_members, dict) and key not in fb_members:
+                    members_to_push[key] = {
+                        "conversation_id": m["conversation_id"],
+                        "user_id": m["user_id"],
+                    }
+            if members_to_push:
+                FIREBASE_MESSAGES.reference("accounts/members").update(members_to_push)
+    except Exception as e:
+        print(f"WARNING: Sync with Firebase accounts failed: {e}", flush=True)
 
 
 def token_digest(token: str) -> str:
@@ -453,13 +535,26 @@ def register():
         return jsonify(error="A valid RSA public key is required."), 400
 
     user_id = secrets.token_urlsafe(6).replace("-", "A").replace("_", "B")[:8].upper()
+    password_hash = generate_password_hash(password)
+    public_key_json = json.dumps(public_key)
     try:
         with connect_db() as db:
             db.execute(
                 "INSERT INTO users (id, username, password_hash, public_key) VALUES (?, ?, ?, ?)",
-                (user_id, username, generate_password_hash(password), json.dumps(public_key)),
+                (user_id, username, password_hash, public_key_json),
             )
             token = issue_session(db, user_id)
+        if FIREBASE_MESSAGES:
+            try:
+                FIREBASE_MESSAGES.reference(f"accounts/users/{user_id}").set({
+                    "id": user_id,
+                    "username": username,
+                    "password_hash": password_hash,
+                    "public_key": public_key_json,
+                    "created_at": datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
+                })
+            except Exception as e:
+                print(f"WARNING: Failed to save user to Firebase: {e}", flush=True)
     except sqlite3.IntegrityError:
         return jsonify(error="That username is already taken."), 409
     return jsonify(token=token, user_id=user_id, username=username), 201
@@ -472,6 +567,26 @@ def login():
     password = str(data.get("password", ""))
     with connect_db() as db:
         user = db.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+        if user is None and FIREBASE_MESSAGES:
+            try:
+                fb_users = FIREBASE_MESSAGES.reference("accounts/users").get() or {}
+                if isinstance(fb_users, dict):
+                    for uid, udata in fb_users.items():
+                        if isinstance(udata, dict) and str(udata.get("username", "")).casefold() == username.casefold():
+                            db.execute(
+                                "INSERT OR IGNORE INTO users (id, username, password_hash, public_key, created_at) "
+                                "VALUES (?, ?, ?, ?, ?)",
+                                (
+                                    str(udata.get("id", uid)),
+                                    str(udata["username"]),
+                                    str(udata["password_hash"]),
+                                    str(udata["public_key"]) if isinstance(udata["public_key"], str) else json.dumps(udata["public_key"]),
+                                    str(udata.get("created_at", datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"))),
+                                ),
+                            )
+                user = db.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+            except Exception as e:
+                print(f"WARNING: On-demand user sync failed: {e}", flush=True)
         if user is None or not check_password_hash(user["password_hash"], password):
             return jsonify(error="Username or password is incorrect."), 401
         token = issue_session(db, user["id"])
@@ -729,7 +844,27 @@ def create_conversation():
             [(conversation_id, member_id) for member_id in member_ids],
         )
         row = db.execute("SELECT * FROM conversations WHERE id = ?", (conversation_id,)).fetchone()
-        return jsonify(conversation=conversation_summary(db, row, user["id"])), 201
+        summary = conversation_summary(db, row, user["id"])
+
+    if FIREBASE_MESSAGES:
+        try:
+            FIREBASE_MESSAGES.reference(f"accounts/conversations/{conversation_id}").set({
+                "id": conversation_id,
+                "title": title,
+                "created_at": datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
+            })
+            members_update = {
+                f"{conversation_id}_{member_id}": {
+                    "conversation_id": conversation_id,
+                    "user_id": member_id,
+                }
+                for member_id in member_ids
+            }
+            FIREBASE_MESSAGES.reference("accounts/members").update(members_update)
+        except Exception as e:
+            print(f"WARNING: Failed to sync conversation to Firebase: {e}", flush=True)
+
+    return jsonify(conversation=summary), 201
 
 
 @app.get("/api/conversations/<int:conversation_id>/messages")
