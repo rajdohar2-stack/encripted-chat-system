@@ -53,16 +53,24 @@ if FIREBASE_DATABASE_URL:
     from firebase_admin import credentials as firebase_credentials, db as firebase_db
 
     cred = None
-    cred_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
-    if cred_path:
-        resolved_cred = Path(cred_path).resolve()
-        if resolved_cred.exists():
-            try:
-                cred = firebase_credentials.Certificate(str(resolved_cred))
-            except Exception as e:
-                print(f"ERROR: Could not load service account from {cred_path}: {e}", flush=True)
-        else:
-            print(f"WARNING: GOOGLE_APPLICATION_CREDENTIALS file not found at: {cred_path}", flush=True)
+    raw_json = os.getenv("FIREBASE_CREDENTIALS_JSON", "").strip()
+    if raw_json:
+        try:
+            cred = firebase_credentials.Certificate(json.loads(raw_json))
+        except Exception as e:
+            print(f"ERROR: Could not parse FIREBASE_CREDENTIALS_JSON: {e}", flush=True)
+
+    if not cred:
+        cred_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
+        if cred_path:
+            resolved_cred = Path(cred_path).resolve()
+            if resolved_cred.exists():
+                try:
+                    cred = firebase_credentials.Certificate(str(resolved_cred))
+                except Exception as e:
+                    print(f"ERROR: Could not load service account from {cred_path}: {e}", flush=True)
+            else:
+                print(f"WARNING: GOOGLE_APPLICATION_CREDENTIALS file not found at: {cred_path}", flush=True)
 
     try:
         firebase_admin.get_app()
@@ -413,11 +421,13 @@ def health():
     if FIREBASE_MESSAGES:
         cred_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
         cred_exists = Path(cred_path).exists() if cred_path else False
+        has_raw_json = bool(os.getenv("FIREBASE_CREDENTIALS_JSON", "").strip())
         return jsonify({
             "ok": True,
             "message_store": "firebase",
             "firebase_cred_path": cred_path,
-            "firebase_cred_exists": cred_exists,
+            "firebase_cred_exists": cred_exists or has_raw_json,
+            "firebase_cred_source": "env_json" if has_raw_json else ("file" if cred_exists else "none"),
             "firebase_db_url": FIREBASE_DATABASE_URL[:45] + "..." if len(FIREBASE_DATABASE_URL) > 45 else FIREBASE_DATABASE_URL,
         })
     return jsonify({"ok": True, "message_store": "local"})
