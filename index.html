@@ -1780,7 +1780,10 @@
                     headers
                 });
             } catch {
-                throw new Error("Can't connect to the API. Make sure 'Run encrypted chat API' is running and trust the local certificate at %USERPROFILE%\\.commonroom\\lan-root-ca.crt, then reload.");
+                if (window.COMMONROOM_API_IS_LOCAL) {
+                    throw new Error("Can't reach the local API at https://" + window.location.hostname + ":5000. Start the 'Run encrypted chat API' task and trust %USERPROFILE%\\.commonroom\\lan-root-ca.crt in Windows' Current User > Trusted Root Certification Authorities store, then reload.");
+                }
+                throw new Error("Can't reach the hosted chat API. Check your internet connection or try again in a moment.");
             }
             const payload = await response.json().catch(() => ({}));
             if (!response.ok) {

@@ -72,6 +72,7 @@ python server.py
 ```
 * Runs locally at `https://127.0.0.1:5000` (and prints your Wi-Fi LAN address for local network testing).
 * On first run, it generates a local Certificate Authority (`%USERPROFILE%\.commonroom\lan-root-ca.crt`). Install this certificate into **Current User > Trusted Root Certification Authorities** to avoid browser HTTPS warnings.
+* When the frontend is opened on `localhost` or `127.0.0.1` (including VS Code Live Server), it automatically uses this local API. Start **Run encrypted chat API** and trust its certificate before signing in. The deployed GitHub Pages frontend continues to use the hosted Render API.
 
 ---
 
