@@ -43,7 +43,7 @@ Keep both tasks and this PC online while using the link. Stop the tunnel task wi
 ## How It Works (Cryptographic Architecture)
 
 * **Key Generation**: 2048-bit **RSA-OAEP** key pair (SHA-256) generated in the browser on registration. Public key is uploaded as JWK; private key never leaves the client in plaintext.
-* **Local Password Vault**: RSA private key is encrypted locally using **AES-256-GCM** with a key derived via **PBKDF2** (310,000 SHA-256 iterations) and stored in browser `localStorage`.
+* **Encrypted Key Backup**: The RSA private key is encrypted in the browser using **AES-256-GCM** with a key derived from the account password using **PBKDF2** (310,000 SHA-256 iterations). The encrypted backup is stored with the account and cached in browser `localStorage`; the server never receives the plaintext private key or password-derived encryption key.
 * **Per-Message Hybrid Encryption**: For every message or image:
   1. A fresh 256-bit **AES-256-GCM** key and 12-byte IV are generated.
   2. The message/image bytes are encrypted with this AES key.
@@ -101,11 +101,12 @@ python server.py
 
 ## Using the Chat & Managing Private Keys
 
-* **Registration & Login**: Create an account with a username and password (minimum 10 characters). Share your 8-character chat ID to let others start a conversation with you.
+* **Registration & Login**: Create an account with a username and password (minimum 10 characters). Share your 8-character chat ID to let others send you a conversation request. After signing in on a new browser, the encrypted key backup is downloaded and unlocked locally with your password.
 * **New Devices & Incognito Tabs (Key Backup)**:
-  * Because private keys stay on your device, logging into a new browser or Incognito tab requires importing your private key backup.
-  * In your active browser, click **Backup** (bottom-left) to download `commonroom-key-<ID>.json`.
-  * On the new device / Incognito window, click **Import backup** on the sign-in screen, select the file, and enter your password.
+  * Accounts created with the current version automatically store a password-encrypted private-key backup with the account. You can sign in on another browser and unlock it with the same password.
+  * Existing accounts need to sign in once from a browser that already has their key; that login uploads the encrypted backup. If the key exists only in an export file, import it and sign in to upload it.
+  * Click **Backup** (bottom-left) to download an additional `commonroom-key-<ID>.json` copy. Keep it somewhere safe as a fallback.
+  * The server stores only ciphertext, but anyone with both access to the backup and the account password can unlock it. If you forget the password, the encrypted key cannot be recovered. Cloud storage depends on the configured hosting and Firebase services and is not a substitute for keeping an independent backup.
 * **Auditing & Viewing Encrypted Payloads**:
   1. **In-Chat Toggle**: Click **"Show encrypted"** in the top chat header bar to view the raw JSON ciphertext payload of any message.
   2. **My Encrypted Records**: Open `/my-encrypted.html` on any device to inspect raw encrypted message records for your conversations.

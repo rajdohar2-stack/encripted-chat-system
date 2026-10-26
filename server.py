@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import json
 import os
 import secrets
@@ -461,6 +462,38 @@ def user_payload(row: sqlite3.Row) -> dict[str, Any]:
     return {"id": row["id"], "username": row["username"], "public_key": public_key}
 
 
+def validate_key_backup(value: Any, user_id: str) -> tuple[dict[str, Any] | None, str | None]:
+    if not isinstance(value, dict) or type(value.get("version")) is not int or value["version"] != 1:
+        return None, "Encrypted key backup format is invalid."
+    if value.get("user_id") != user_id:
+        return None, "Encrypted key backup does not match this account."
+
+    salt = value.get("salt")
+    iv = value.get("iv")
+    ciphertext = value.get("ciphertext")
+    if not all(isinstance(item, str) for item in (salt, iv, ciphertext)):
+        return None, "Encrypted key backup is incomplete."
+    if any(len(item) > 65536 for item in (salt, iv, ciphertext)):
+        return None, "Encrypted key backup is too large."
+
+    try:
+        salt_bytes = base64.b64decode(salt, validate=True)
+        iv_bytes = base64.b64decode(iv, validate=True)
+        ciphertext_bytes = base64.b64decode(ciphertext, validate=True)
+    except (binascii.Error, ValueError):
+        return None, "Encrypted key backup encoding is invalid."
+    if len(salt_bytes) != 16 or len(iv_bytes) != 12 or not 16 < len(ciphertext_bytes) <= 32768:
+        return None, "Encrypted key backup fields have invalid lengths."
+
+    return {
+        "version": 1,
+        "user_id": user_id,
+        "salt": salt,
+        "iv": iv,
+        "ciphertext": ciphertext,
+    }, None
+
+
 def current_user() -> sqlite3.Row | None:
     if "current_user" in g:
         return g.current_user
@@ -618,6 +651,7 @@ def register():
                     "username": username,
                     "password_hash": password_hash,
                     "public_key": public_key_json,
+                    "key_backup": None,
                     "created_at": datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
                 })
             except Exception as e:
@@ -641,13 +675,21 @@ def login():
                     for uid, udata in fb_users.items():
                         if isinstance(udata, dict) and str(udata.get("username", "")).casefold() == username.casefold():
                             db.execute(
-                                "INSERT OR IGNORE INTO users (id, username, password_hash, public_key, created_at) "
-                                "VALUES (?, ?, ?, ?, ?)",
+                                "INSERT OR IGNORE INTO users "
+                                "(id, username, password_hash, public_key, key_backup, created_at) "
+                                "VALUES (?, ?, ?, ?, ?, ?)",
                                 (
                                     str(udata.get("id", uid)),
                                     str(udata["username"]),
                                     str(udata["password_hash"]),
                                     str(udata["public_key"]) if isinstance(udata["public_key"], str) else json.dumps(udata["public_key"]),
+                                    (
+                                        str(udata["key_backup"])
+                                        if isinstance(udata.get("key_backup"), str)
+                                        else json.dumps(udata["key_backup"])
+                                        if isinstance(udata.get("key_backup"), dict)
+                                        else None
+                                    ),
                                     str(udata.get("created_at", datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"))),
                                 ),
                             )
@@ -658,6 +700,71 @@ def login():
             return jsonify(error="Username or password is incorrect."), 401
         token = issue_session(db, user["id"])
     return jsonify(token=token, user_id=user["id"], username=user["username"])
+
+
+@app.get("/api/key-backup")
+def get_key_backup():
+    user = require_user()
+    if user is None:
+        return jsonify(error="Sign in to continue."), 401
+
+    with connect_db() as db:
+        row = db.execute("SELECT key_backup FROM users WHERE id = ?", (user["id"],)).fetchone()
+        backup_value = row["key_backup"] if row else None
+
+    if not backup_value and FIREBASE_MESSAGES:
+        fb_user = FIREBASE_MESSAGES.reference(f"accounts/users/{user['id']}").get() or {}
+        if isinstance(fb_user, dict):
+            backup_value = fb_user.get("key_backup")
+            if isinstance(backup_value, dict):
+                backup_value = json.dumps(backup_value)
+            if isinstance(backup_value, str):
+                with connect_db() as db:
+                    db.execute(
+                        "UPDATE users SET key_backup = ? WHERE id = ?",
+                        (backup_value, user["id"]),
+                    )
+
+    if isinstance(backup_value, str):
+        try:
+            backup = json.loads(backup_value)
+        except json.JSONDecodeError:
+            return jsonify(error="The saved encrypted key backup is unreadable. Contact support before resetting your key."), 500
+    elif isinstance(backup_value, dict):
+        backup = backup_value
+    else:
+        backup = None
+    return jsonify(backup=backup)
+
+
+@app.post("/api/key-backup")
+def save_key_backup():
+    user = require_user()
+    if user is None:
+        return jsonify(error="Sign in to continue."), 401
+
+    data = request.get_json(silent=True) or {}
+    backup, error = validate_key_backup(data.get("backup"), user["id"])
+    if error:
+        return jsonify(error=error), 400
+
+    backup_json = json.dumps(backup, separators=(",", ":"))
+    with connect_db() as db:
+        db.execute(
+            "UPDATE users SET key_backup = ? WHERE id = ?",
+            (backup_json, user["id"]),
+        )
+
+    if FIREBASE_MESSAGES:
+        try:
+            FIREBASE_MESSAGES.reference(f"accounts/users/{user['id']}").update({
+                "key_backup": backup_json,
+            })
+        except Exception as error:
+            print(f"ERROR: Could not save encrypted key backup to Firebase: {error}", flush=True)
+            return jsonify(error="The encrypted key backup could not be saved to cloud storage. Try again before using another device."), 503
+
+    return jsonify(ok=True)
 
 
 @app.get("/api/me")

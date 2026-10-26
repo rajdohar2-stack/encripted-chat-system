@@ -1529,7 +1529,7 @@
                     <button id="authSubmit" class="primary" type="submit"><span id="authSubmitText">Sign in</span><span aria-hidden="true">&#8594;</span></button>
                 </form>
                 <p id="authError" class="auth-error" role="status"></p>
-                <div class="recovery-row"><span>New device? Import your encrypted key backup first.</span><button id="importKeyButton" class="text-button" type="button">Import backup</button><input id="importKeyFile" class="hidden" type="file" accept="application/json,.json"></div>
+                <div class="recovery-row"><span>Your encrypted key backup syncs with your account. You can still import a backup file.</span><button id="importKeyButton" class="text-button" type="button">Import backup</button><input id="importKeyFile" class="hidden" type="file" accept="application/json,.json"></div>
             </div>
         </section>
     </main>
@@ -1936,6 +1936,7 @@
             const password = $("#password").value;
             try {
                 let result;
+                let vaultToSync;
                 if (state.mode === "register") {
                     $("#authSubmitText").textContent = "Making your keys...";
                     const identity = await generateIdentity();
@@ -1947,7 +1948,7 @@
                             public_key: identity.publicJwk
                         })
                     });
-                    await makeVault(identity.privateJwk, password, result.user_id);
+                    vaultToSync = await makeVault(identity.privateJwk, password, result.user_id);
                     state.privateKey = await crypto.subtle.importKey("jwk", identity.privateJwk, {
                         name: "RSA-OAEP",
                         hash: "SHA-256"
@@ -1960,9 +1961,28 @@
                             password
                         })
                     });
-                    const vault = localStorage.getItem(vaultKey(result.user_id));
+                    state.token = result.token;
+                    const remoteBackup = (await api("/key-backup")).backup;
+                    const localVault = localStorage.getItem(vaultKey(result.user_id));
                     const imported = sessionStorage.getItem(`commonroom-import-${result.user_id}`);
-                    state.privateKey = await unlockVault(vault ? JSON.parse(vault) : (imported ? JSON.parse(imported) : null), password, result.user_id);
+                    const candidates = [localVault, remoteBackup ? JSON.stringify(remoteBackup) : null, imported]
+                        .filter((value, index, values) => value && values.indexOf(value) === index);
+                    let unlockError;
+                    for (const candidate of candidates) {
+                        try {
+                            vaultToSync = JSON.parse(candidate);
+                            state.privateKey = await unlockVault(vaultToSync, password, result.user_id);
+                            break;
+                        } catch (error) {
+                            unlockError = error;
+                            vaultToSync = null;
+                        }
+                    }
+                    if (!state.privateKey) {
+                        if (unlockError) throw unlockError;
+                        throw new Error("No encrypted private-key backup is saved for this account yet. Sign in on the browser where you created the account, or import your backup file once.");
+                    }
+                    localStorage.setItem(vaultKey(result.user_id), JSON.stringify(vaultToSync));
                     sessionStorage.removeItem(`commonroom-import-${result.user_id}`);
                 }
                 state.token = result.token;
@@ -1970,10 +1990,24 @@
                     id: result.user_id,
                     username: result.username
                 };
+                try {
+                    await api("/key-backup", {
+                        method: "POST",
+                        body: JSON.stringify({ backup: vaultToSync })
+                    });
+                } catch (error) {
+                    if (state.mode === "register") {
+                        throw new Error(`Your account was created, but its encrypted key backup could not be synced: ${error.message} Keep this browser data or a downloaded backup, then sign in again to retry.`);
+                    }
+                    throw error;
+                }
                 localStorage.setItem("commonroom-token", state.token);
                 $("#password").value = "";
                 await enterApp();
             } catch (error) {
+                state.token = null;
+                state.privateKey = null;
+                state.user = null;
                 showError(error.message);
             } finally {
                 state.loading = false;
