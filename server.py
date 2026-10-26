@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
 import secrets
@@ -229,6 +230,7 @@ def initialize_db() -> None:
                 username TEXT NOT NULL UNIQUE COLLATE NOCASE,
                 password_hash TEXT NOT NULL,
                 public_key TEXT NOT NULL,
+                key_backup TEXT,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS sessions (
@@ -264,6 +266,11 @@ def initialize_db() -> None:
             WHERE (SELECT COUNT(*) FROM members WHERE members.conversation_id = m1.conversation_id) = 2;
             """
         )
+        user_columns = {
+            row["name"] for row in db.execute("PRAGMA table_info(users)").fetchall()
+        }
+        if "key_backup" not in user_columns:
+            db.execute("ALTER TABLE users ADD COLUMN key_backup TEXT")
     initialize_messages_db()
     sync_accounts_with_firebase()
 
@@ -334,13 +341,21 @@ def sync_accounts_with_firebase() -> None:
                 for uid, udata in fb_users.items():
                     if isinstance(udata, dict) and "username" in udata and "password_hash" in udata:
                         db.execute(
-                            "INSERT OR IGNORE INTO users (id, username, password_hash, public_key, created_at) "
-                            "VALUES (?, ?, ?, ?, ?)",
+                            "INSERT OR IGNORE INTO users "
+                            "(id, username, password_hash, public_key, key_backup, created_at) "
+                            "VALUES (?, ?, ?, ?, ?, ?)",
                             (
                                 str(udata.get("id", uid)),
                                 str(udata["username"]),
                                 str(udata["password_hash"]),
                                 str(udata["public_key"]) if isinstance(udata["public_key"], str) else json.dumps(udata["public_key"]),
+                                (
+                                    str(udata["key_backup"])
+                                    if isinstance(udata.get("key_backup"), str)
+                                    else json.dumps(udata["key_backup"])
+                                    if isinstance(udata.get("key_backup"), dict)
+                                    else None
+                                ),
                                 str(udata.get("created_at", datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"))),
                             ),
                         )
@@ -374,6 +389,7 @@ def sync_accounts_with_firebase() -> None:
                         "username": u["username"],
                         "password_hash": u["password_hash"],
                         "public_key": u["public_key"],
+                        "key_backup": u["key_backup"],
                         "created_at": u["created_at"],
                     })
 
