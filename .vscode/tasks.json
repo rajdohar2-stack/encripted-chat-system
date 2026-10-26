@@ -12,6 +12,24 @@
         "reveal": "always",
         "panel": "dedicated"
       }
+    },
+    {
+      "label": "Share chat with a temporary secure link",
+      "type": "shell",
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\start-tunnel.ps1"
+      ],
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
     }
   ]
 }

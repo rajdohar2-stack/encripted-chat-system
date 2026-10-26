@@ -214,8 +214,7 @@
     <script>
         const API_BASE = window.COMMONROOM_API_URL?.trim() ||
             (window.location.hostname.endsWith(".github.io") ? "" :
-                window.location.hostname.endsWith(".onrender.com") ? window.location.origin :
-                    `https://${window.location.hostname}:5000`);
+                window.location.origin);
         const API = API_BASE ? `${API_BASE.replace(/\/+$/, "")}/api` : "";
         const $ = (selector) => document.querySelector(selector);
         const state = {
@@ -239,7 +238,12 @@
                 throw new Error("Can't connect to the API. Make sure 'Run encrypted chat API' is running and trust the local certificate at %USERPROFILE%\\.commonroom\\lan-root-ca.crt, then reload.");
             }
             const data = await response.json().catch(() => ({}));
-            if (!response.ok) throw new Error(data.error || `Request failed (${response.status}).`);
+            if (!response.ok) {
+                if (response.status === 405 || response.status === 404) {
+                    throw new Error(`API endpoint not found (HTTP ${response.status}). If you opened this via Live Server (port ${window.location.port || '5501'}), please open https://127.0.0.1:5000 in your browser with 'Run encrypted chat API' running.`);
+                }
+                throw new Error(data.error || `Request failed (${response.status}).`);
+            }
             return data;
         }
 

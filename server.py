@@ -455,6 +455,11 @@ def preflight(unused: str):
 
 
 def is_loopback_request() -> bool:
+    if any(
+        request.headers.get(header)
+        for header in ("CF-Connecting-IP", "Forwarded", "X-Forwarded-For", "True-Client-IP")
+    ):
+        return False
     try:
         return ipaddress.ip_address(request.remote_addr or "").is_loopback
     except ValueError:

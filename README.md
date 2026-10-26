@@ -30,6 +30,16 @@ All messages, attachments, and private keys are encrypted directly inside the br
 
 ---
 
+## Use a temporary link from another network
+
+For occasional access when devices are not on the same Wi-Fi, install Cloudflare Tunnel once with `winget install --id Cloudflare.cloudflared`. In VS Code, start **Run encrypted chat API**, then start **Share chat with a temporary secure link**. Enter the email address that should be allowed to open the link. Cloudflare sends that address a one-time PIN; other addresses are blocked. The task prints a temporary `trycloudflare.com` URL. Open that URL on each device and sign in to the chat there.
+
+Keep both tasks and this PC online while using the link. Stop the tunnel task with **Ctrl+C** when finished; the URL expires and changes the next time it starts. This shares the chat website and API together, so do not use the GitHub Pages URL for this temporary setup. The existing encrypted-record administrator viewer remains local-only and is blocked through the tunnel. Quick Tunnels are for testing, have no uptime guarantee, and are not a production hosting service. Use test data and do not share the link.
+
+## Use the GitHub Pages site from anywhere
+
+---
+
 ## How It Works (Cryptographic Architecture)
 
 * **Key Generation**: 2048-bit **RSA-OAEP** key pair (SHA-256) generated in the browser on registration. Public key is uploaded as JWK; private key never leaves the client in plaintext.
