@@ -1747,6 +1747,10 @@
             return `commonroom-vault-${userId}`;
         }
 
+        function isKeyBackupEndpointUnavailable(error) {
+            return /API endpoint not found|HTTP 404|HTTP 405|Method Not Allowed/i.test(error.message);
+        }
+
         function showError(message) {
             $("#authError").textContent = message || "";
         }
@@ -1934,6 +1938,7 @@
             showError("");
             const username = $("#username").value.trim();
             const password = $("#password").value;
+            let backupSyncWarning = "";
             try {
                 let result;
                 let vaultToSync;
@@ -1962,9 +1967,15 @@
                         })
                     });
                     state.token = result.token;
-                    const remoteBackup = (await api("/key-backup")).backup;
                     const localVault = localStorage.getItem(vaultKey(result.user_id));
                     const imported = sessionStorage.getItem(`commonroom-import-${result.user_id}`);
+                    let remoteBackup = null;
+                    let backupFetchError = null;
+                    try {
+                        remoteBackup = (await api("/key-backup")).backup;
+                    } catch (error) {
+                        backupFetchError = error;
+                    }
                     const candidates = [localVault, remoteBackup ? JSON.stringify(remoteBackup) : null, imported]
                         .filter((value, index, values) => value && values.indexOf(value) === index);
                     let unlockError;
@@ -1980,6 +1991,7 @@
                     }
                     if (!state.privateKey) {
                         if (unlockError) throw unlockError;
+                        if (backupFetchError) throw backupFetchError;
                         throw new Error("No encrypted private-key backup is saved for this account yet. Sign in on the browser where you created the account, or import your backup file once.");
                     }
                     localStorage.setItem(vaultKey(result.user_id), JSON.stringify(vaultToSync));
@@ -1996,14 +2008,15 @@
                         body: JSON.stringify({ backup: vaultToSync })
                     });
                 } catch (error) {
-                    if (state.mode === "register") {
-                        throw new Error(`Your account was created, but its encrypted key backup could not be synced: ${error.message} Keep this browser data or a downloaded backup, then sign in again to retry.`);
-                    }
-                    throw error;
+                    const detail = isKeyBackupEndpointUnavailable(error)
+                        ? "The chat server hasn't been updated to enable cloud key backups yet."
+                        : `Cloud key backup could not be synced: ${error.message}`;
+                    backupSyncWarning = `${detail} Your key is still available in this browser; download a backup before using another device.`;
                 }
                 localStorage.setItem("commonroom-token", state.token);
                 $("#password").value = "";
                 await enterApp();
+                if (backupSyncWarning) toast(backupSyncWarning);
             } catch (error) {
                 state.token = null;
                 state.privateKey = null;
