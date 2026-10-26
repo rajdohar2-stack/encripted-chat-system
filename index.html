@@ -392,12 +392,270 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 22px 20px 18px;
+            padding: 20px 18px 16px;
             border-bottom: 1px solid var(--line);
         }
         
         .side-head .brand {
             font-size: 16px;
+        }
+
+        .side-head-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .icon-button {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 36px;
+            height: 36px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: var(--surface);
+            color: var(--ink-soft);
+            cursor: pointer;
+            transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .icon-button:hover {
+            background: #edf2e9;
+            color: var(--ink);
+            border-color: #cbd8c8;
+            transform: translateY(-1px);
+        }
+
+        .icon-button:active {
+            transform: translateY(0);
+        }
+
+        .notif-badge {
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            min-width: 18px;
+            height: 18px;
+            padding: 0 4px;
+            border-radius: 9px;
+            background: var(--coral);
+            color: #fff;
+            font: 700 10px "DM Mono", monospace;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 6px rgba(238, 121, 85, 0.45);
+            animation: badgePulse 2.4s infinite;
+        }
+
+        @keyframes badgePulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.15); }
+        }
+
+        .notification-panel {
+            border-bottom: 1px solid var(--line);
+            background: #fffefb;
+            padding: 14px 16px;
+            animation: slideDown 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+            box-shadow: 0 4px 18px rgba(23, 58, 49, 0.05);
+        }
+
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .notif-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+
+        .notif-head-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font: 700 14px Manrope, sans-serif;
+            color: var(--ink);
+        }
+
+        .notif-pill {
+            padding: 2px 7px;
+            border-radius: 12px;
+            background: var(--green);
+            color: var(--ink);
+            font: 700 11px "DM Mono", monospace;
+        }
+
+        .notif-close {
+            padding: 2px 8px;
+            font-size: 16px;
+            line-height: 1;
+        }
+
+        .notif-tabs {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 12px;
+            background: #eff3eb;
+            padding: 3px;
+            border-radius: 7px;
+        }
+
+        .notif-tab {
+            flex: 1;
+            border: 0;
+            padding: 6px 10px;
+            border-radius: 5px;
+            background: transparent;
+            color: var(--ink-soft);
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .notif-tab.active {
+            background: var(--surface);
+            color: var(--ink);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+        }
+
+        .notif-list {
+            max-height: 260px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .notif-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid var(--line);
+            background: var(--surface);
+            transition: all 0.15s ease;
+        }
+
+        .notif-item:hover {
+            border-color: #cbd8c8;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+        }
+
+        .notif-item .avatar {
+            width: 34px;
+            height: 34px;
+            flex-basis: 34px;
+            font-size: 12px;
+        }
+
+        .notif-copy {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .notif-copy strong {
+            display: block;
+            font-size: 12px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .notif-copy span {
+            display: block;
+            font-size: 10px;
+            color: #7c8a81;
+            font-family: "DM Mono", monospace;
+            margin-top: 2px;
+        }
+
+        .notif-actions {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .notif-btn-accept {
+            border: 0;
+            border-radius: 5px;
+            padding: 6px 10px;
+            background: var(--green);
+            color: var(--ink);
+            font: 700 11px "DM Sans", sans-serif;
+            cursor: pointer;
+            transition: transform 0.1s ease, filter 0.1s ease;
+        }
+
+        .notif-btn-accept:hover {
+            filter: brightness(0.95);
+            transform: translateY(-1px);
+        }
+
+        .notif-btn-decline {
+            border: 1px solid var(--line);
+            border-radius: 5px;
+            padding: 5px 9px;
+            background: transparent;
+            color: var(--ink-soft);
+            font: 600 11px "DM Sans", sans-serif;
+            cursor: pointer;
+        }
+
+        .notif-btn-decline:hover {
+            background: #fcece8;
+            color: var(--coral);
+            border-color: #f7c3b8;
+        }
+
+        .notif-empty {
+            text-align: center;
+            padding: 24px 16px;
+            color: #7c8a81;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        .btn-request {
+            border: 1px solid var(--green-deep);
+            border-radius: 5px;
+            padding: 7px 11px;
+            background: var(--ink);
+            color: #fff;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: 700;
+            transition: all 0.15s ease;
+        }
+
+        .btn-request:hover {
+            background: var(--green-deep);
+        }
+
+        .btn-request:disabled {
+            opacity: 0.65;
+            cursor: not-allowed;
+            background: #e2e8df;
+            border-color: #cbd8c8;
+            color: #6a7b72;
+        }
+
+        .btn-connected {
+            border: 1px solid #c9d9b2;
+            border-radius: 5px;
+            padding: 7px 11px;
+            background: var(--green);
+            color: var(--ink);
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: 700;
         }
         
         .compose-button {
@@ -410,6 +668,12 @@
             cursor: pointer;
             font-size: 23px;
             line-height: 1;
+            transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .compose-button:hover {
+            filter: brightness(0.96);
+            transform: translateY(-1px);
         }
         
         .side-label {
@@ -1274,7 +1538,32 @@
         <div class="app-frame">
             <aside class="sidebar">
                 <header class="side-head">
-                    <div class="brand"><span class="brand-mark">c.</span><span>commonroom</span></div><button id="newChatButton" class="compose-button" type="button" aria-label="Start a chat" title="Start a chat">+</button></header>
+                    <div class="brand"><span class="brand-mark">c.</span><span>commonroom</span></div>
+                    <div class="side-head-actions">
+                        <button id="notificationBellButton" class="icon-button notification-bell" type="button" aria-label="Requests and Notifications" title="Requests & Notifications">
+                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                                <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+                            </svg>
+                            <span id="notifBadge" class="notif-badge hidden">0</span>
+                        </button>
+                        <button id="newChatButton" class="compose-button" type="button" aria-label="Find people" title="Find people">+</button>
+                    </div>
+                </header>
+                <div id="notificationPanel" class="notification-panel hidden" aria-label="Notifications panel">
+                    <div class="notif-head">
+                        <div class="notif-head-title">
+                            <span>Requests</span>
+                            <span id="notifCountPill" class="notif-pill">0</span>
+                        </div>
+                        <button id="closeNotifPanel" class="quiet-button notif-close" type="button" aria-label="Close notifications">&times;</button>
+                    </div>
+                    <div class="notif-tabs" role="tablist">
+                        <button id="notifTabIncoming" class="notif-tab active" type="button" role="tab" aria-selected="true">Incoming (<span id="notifIncomingCount">0</span>)</button>
+                        <button id="notifTabSent" class="notif-tab" type="button" role="tab" aria-selected="false">Sent</button>
+                    </div>
+                    <div id="notifList" class="notif-list"></div>
+                </div>
                 <p class="side-label">Your conversations</p>
                 <nav id="conversationList" class="conversation-list" aria-label="Conversations"></nav>
                 <footer class="profile">
@@ -1322,8 +1611,123 @@
             showEncrypted: false,
             objectUrls: new Set(),
             poll: null,
-            loading: false
+            loading: false,
+            requests: { incoming: [], sent: [] },
+            notifTab: "incoming",
+            incomingCount: 0
         };
+
+        function setNotificationPanel(open) {
+            const panel = document.getElementById("notificationPanel");
+            if (!panel) return;
+            panel.classList.toggle("hidden", !open);
+            const bell = document.getElementById("notificationBellButton");
+            if (bell) bell.setAttribute("aria-expanded", String(open));
+        }
+
+        function renderNotificationTabs() {
+            const incomingTab = document.getElementById("notifTabIncoming");
+            const sentTab = document.getElementById("notifTabSent");
+            const isIncoming = state.notifTab === "incoming";
+            incomingTab.classList.toggle("active", isIncoming);
+            sentTab.classList.toggle("active", !isIncoming);
+            incomingTab.setAttribute("aria-selected", String(isIncoming));
+            sentTab.setAttribute("aria-selected", String(!isIncoming));
+        }
+
+        function renderNotifications() {
+            const list = document.getElementById("notifList");
+            const items = (state.notifTab === "incoming" ? state.requests.incoming : state.requests.sent) || [];
+            const count = state.incomingCount || state.requests.incoming?.length || 0;
+            document.getElementById("notifIncomingCount").textContent = String(state.requests.incoming?.length || 0);
+            document.getElementById("notifCountPill").textContent = String(count);
+            const badge = document.getElementById("notifBadge");
+            badge.textContent = String(count);
+            badge.classList.toggle("hidden", count <= 0);
+            renderNotificationTabs();
+            list.replaceChildren();
+
+            if (!items.length) {
+                const empty = document.createElement("div");
+                empty.className = "notif-empty";
+                empty.textContent = state.notifTab === "incoming" ? "No new requests yet." : "No requests sent.";
+                list.append(empty);
+                return;
+            }
+
+            for (const item of items) {
+                const card = document.createElement("div");
+                card.className = "notif-item";
+                const user = state.notifTab === "incoming" ? item.sender : item.receiver;
+                const avatar = document.createElement("span");
+                avatar.className = "avatar";
+                avatar.textContent = (user?.username || "?").slice(0, 1).toUpperCase();
+                const copy = document.createElement("div");
+                copy.className = "notif-copy";
+                const strong = document.createElement("strong");
+                strong.textContent = user?.username || "Unknown user";
+                const meta = document.createElement("span");
+                meta.textContent = state.notifTab === "incoming" ? "Wants to connect" : `Request ${item.status || "pending"}`;
+                copy.append(strong, meta);
+                card.append(avatar, copy);
+
+                if (state.notifTab === "incoming") {
+                    const actions = document.createElement("div");
+                    actions.className = "notif-actions";
+                    const accept = document.createElement("button");
+                    accept.type = "button";
+                    accept.className = "notif-btn-accept";
+                    accept.textContent = "Accept";
+                    accept.addEventListener("click", async () => {
+                        try {
+                            await api(`/requests/${item.id}/accept`, { method: "POST" });
+                            toast("Request accepted. You can chat now.");
+                            await refreshRequests();
+                            await refreshConversations();
+                            setNotificationPanel(true);
+                        } catch (error) {
+                            toast(error.message);
+                        }
+                    });
+                    const decline = document.createElement("button");
+                    decline.type = "button";
+                    decline.className = "notif-btn-decline";
+                    decline.textContent = "Decline";
+                    decline.addEventListener("click", async () => {
+                        try {
+                            await api(`/requests/${item.id}/decline`, { method: "POST" });
+                            await refreshRequests();
+                            toast("Request declined.");
+                        } catch (error) {
+                            toast(error.message);
+                        }
+                    });
+                    actions.append(accept, decline);
+                    card.append(actions);
+                } else {
+                    const status = document.createElement("span");
+                    status.className = "notif-status";
+                    status.textContent = item.status || "pending";
+                    status.setAttribute("data-status", item.status || "pending");
+                    card.append(status);
+                }
+                list.append(card);
+            }
+        }
+
+        async function refreshRequests() {
+            try {
+                const response = await api("/requests");
+                state.requests = response;
+                state.incomingCount = Number(response.pending_count || response.incoming?.length || 0);
+                renderNotifications();
+            } catch (error) {
+                if (error.message.includes("Sign in")) {
+                    return;
+                }
+                console.warn("Request refresh failed:", error);
+            }
+        }
 
         function bytesToBase64(bytes) {
             let binary = "";
@@ -1639,9 +2043,11 @@
             $("#profileName").textContent = state.user.username;
             $("#profileId").textContent = state.user.id;
             $("#profileAvatar").textContent = state.user.username.slice(0, 1).toUpperCase();
+            await refreshRequests();
             await refreshConversations();
             if (state.poll) clearInterval(state.poll);
             state.poll = setInterval(async() => {
+                await refreshRequests();
                 await refreshConversations();
                 if (state.activeConversation) await loadMessages(false);
             }, 1800);
@@ -1801,9 +2207,54 @@
             const row = document.createElement("div"); row.className = "result-row";
             const avatar = document.createElement("span"); avatar.className = "avatar"; avatar.textContent = member.username[0].toUpperCase();
             const copy = document.createElement("div"); copy.className = "result-copy"; const name = document.createElement("strong"); name.textContent = member.username; const id = document.createElement("span"); id.textContent = member.id; copy.append(name, id);
-            const add = document.createElement("button"); add.className = "add-result"; add.type = "button"; add.textContent = selected.has(member.id) ? "Added" : "Add"; add.disabled = selected.has(member.id);
-            add.addEventListener("click", () => { selected.set(member.id, member); updateSelected(); add.textContent = "Added"; add.disabled = true; });
-            row.append(avatar, copy, add); host.append(row);
+            const action = document.createElement("button"); action.className = "add-result"; action.type = "button";
+            const actionMap = {
+              none: "Request",
+              sent_pending: "Pending",
+              received_pending: "Accept in panel",
+              connected: "Connected",
+              declined: "Request again",
+            };
+            const isAlreadySelected = selected.has(member.id);
+            action.textContent = isAlreadySelected ? "Added" : (actionMap[member.relationship] || "Request");
+            action.disabled = isAlreadySelected || member.relationship === "sent_pending" || member.relationship === "received_pending" || member.relationship === "connected";
+            action.addEventListener("click", async () => {
+              if (member.relationship === "connected") {
+                selected.set(member.id, member);
+                updateSelected();
+                action.textContent = "Added";
+                action.disabled = true;
+                return;
+              }
+              if (member.relationship === "sent_pending") {
+                toast("Request is already waiting for approval.");
+                return;
+              }
+              if (member.relationship === "received_pending") {
+                toast("This request is waiting in your notifications. Accept it there.");
+                return;
+              }
+              if (member.relationship === "declined") {
+                try {
+                  await api("/requests", { method: "POST", body: JSON.stringify({ receiver_id: member.id }) });
+                  toast(`Chat request sent to ${member.username}.`);
+                  await refreshRequests();
+                  action.textContent = "Pending";
+                  action.disabled = true;
+                  member.relationship = "sent_pending";
+                } catch (error) { toast(error.message); }
+                return;
+              }
+              try {
+                await api("/requests", { method: "POST", body: JSON.stringify({ receiver_id: member.id }) });
+                toast(`Chat request sent to ${member.username}.`);
+                await refreshRequests();
+                action.textContent = "Pending";
+                action.disabled = true;
+                member.relationship = "sent_pending";
+              } catch (error) { toast(error.message); }
+            });
+            row.append(avatar, copy, action); host.append(row);
           }
         } catch (error) { $("#searchResults").textContent = error.message; }
       };
@@ -1812,6 +2263,20 @@
       const createChatButton = $("#createChatButton");
       createChatButton.addEventListener("click", async () => {
         if (!selected.size) { $("#newChatError").textContent = "Find and add at least one person first."; return; }
+        if (selected.size === 1) {
+          const [targetId] = [...selected.keys()];
+          const member = [...selected.values()][0];
+          try {
+            await api("/requests", { method: "POST", body: JSON.stringify({ receiver_id: targetId }) });
+            close();
+            await refreshRequests();
+            toast(`Chat request sent to ${member.username}. Wait for them to accept it.`);
+            return;
+          } catch (error) {
+            $("#newChatError").textContent = error.message;
+            return;
+          }
+        }
         createChatButton.disabled = true;
         try {
           const result = await api("/conversations", { method: "POST", body: JSON.stringify({ member_ids: [...selected.keys()], title: $("#groupTitle")?.value.trim() || null }) });
@@ -1839,6 +2304,24 @@
         localStorage.removeItem("commonroom-token"); state.token = null;
       }
     }
+
+    document.getElementById("notificationBellButton").addEventListener("click", () => {
+      const isHidden = document.getElementById("notificationPanel").classList.contains("hidden");
+      setNotificationPanel(isHidden);
+      if (isHidden) {
+        refreshRequests();
+      }
+    });
+    document.getElementById("closeNotifPanel").addEventListener("click", () => setNotificationPanel(false));
+    document.getElementById("notifTabIncoming").addEventListener("click", () => {
+      state.notifTab = "incoming";
+      renderNotifications();
+    });
+    document.getElementById("notifTabSent").addEventListener("click", () => {
+      state.notifTab = "sent";
+      renderNotifications();
+    });
+
     if (!window.crypto?.subtle) showError("This browser needs HTTPS or localhost for secure encryption. Open this page through Live Server.");
     restoreSession();
     </script>

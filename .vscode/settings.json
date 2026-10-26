@@ -11,7 +11,7 @@
     "**/*.db",
     "**/*.sqlite3"
   ],
-  "liveServer.settings.port": 5501,
+  "liveServer.settings.port": 5502,
   "git.enableSmartCommit": true,
   "git.confirmSync": false,
   "git.autofetch": true

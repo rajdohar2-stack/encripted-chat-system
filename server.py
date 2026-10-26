@@ -246,6 +246,22 @@ def initialize_db() -> None:
                 user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                 PRIMARY KEY (conversation_id, user_id)
             );
+            CREATE TABLE IF NOT EXISTS chat_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sender_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                receiver_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'declined')),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (sender_id, receiver_id)
+            );
+            CREATE INDEX IF NOT EXISTS chat_requests_receiver ON chat_requests(receiver_id, status);
+            CREATE INDEX IF NOT EXISTS chat_requests_sender ON chat_requests(sender_id, status);
+            INSERT OR IGNORE INTO chat_requests (sender_id, receiver_id, status)
+            SELECT m1.user_id, m2.user_id, 'accepted'
+            FROM members m1
+            JOIN members m2 ON m1.conversation_id = m2.conversation_id AND m1.user_id < m2.user_id
+            WHERE (SELECT COUNT(*) FROM members WHERE members.conversation_id = m1.conversation_id) = 2;
             """
         )
     initialize_messages_db()
@@ -382,6 +398,36 @@ def sync_accounts_with_firebase() -> None:
                     }
             if members_to_push:
                 FIREBASE_MESSAGES.reference("accounts/members").update(members_to_push)
+
+            # Sync chat requests
+            fb_requests = FIREBASE_MESSAGES.reference("accounts/requests").get() or {}
+            if isinstance(fb_requests, dict):
+                for rid, rdata in fb_requests.items():
+                    if isinstance(rdata, dict) and "sender_id" in rdata and "receiver_id" in rdata:
+                        db.execute(
+                            "INSERT OR IGNORE INTO chat_requests (id, sender_id, receiver_id, status, created_at, updated_at) "
+                            "VALUES (?, ?, ?, ?, ?, ?)",
+                            (
+                                int(rdata.get("id", rid)),
+                                str(rdata["sender_id"]),
+                                str(rdata["receiver_id"]),
+                                str(rdata.get("status", "pending")),
+                                str(rdata.get("created_at", datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"))),
+                                str(rdata.get("updated_at", datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"))),
+                            ),
+                        )
+            local_requests = db.execute("SELECT * FROM chat_requests").fetchall()
+            for r in local_requests:
+                rid_str = str(r["id"])
+                if isinstance(fb_requests, dict) and rid_str not in fb_requests:
+                    FIREBASE_MESSAGES.reference(f"accounts/requests/{r['id']}").set({
+                        "id": r["id"],
+                        "sender_id": r["sender_id"],
+                        "receiver_id": r["receiver_id"],
+                        "status": r["status"],
+                        "created_at": r["created_at"],
+                        "updated_at": r["updated_at"],
+                    })
     except Exception as e:
         print(f"WARNING: Sync with Firebase accounts failed: {e}", flush=True)
 
@@ -616,6 +662,31 @@ def logout():
     return jsonify(ok=True)
 
 
+def direct_conversation_ids(db: sqlite3.Connection, member_ids: list[str]) -> list[int]:
+    return [
+        row["id"]
+        for row in db.execute(
+            "SELECT conversations.id FROM conversations "
+            "WHERE (conversations.title IS NULL OR trim(conversations.title) = '') "
+            "AND (SELECT COUNT(*) FROM members WHERE members.conversation_id = conversations.id) = 2 "
+            "AND EXISTS (SELECT 1 FROM members WHERE members.conversation_id = conversations.id "
+            "AND members.user_id = ?) "
+            "AND EXISTS (SELECT 1 FROM members WHERE members.conversation_id = conversations.id "
+            "AND members.user_id = ?) ORDER BY conversations.id",
+            member_ids,
+        ).fetchall()
+    ]
+
+
+def is_request_accepted(db: sqlite3.Connection, user_a: str, user_b: str) -> bool:
+    row = db.execute(
+        "SELECT 1 FROM chat_requests WHERE status = 'accepted' AND "
+        "((sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?))",
+        (user_a, user_b, user_b, user_a),
+    ).fetchone()
+    return row is not None
+
+
 @app.get("/api/users")
 def find_users():
     user = require_user()
@@ -630,7 +701,262 @@ def find_users():
             "WHERE id != ? AND (id LIKE ? OR username LIKE ?) LIMIT 12",
             (user["id"], f"%{query}%", f"%{query}%"),
         ).fetchall()
-    return jsonify(users=[user_payload(row) for row in rows])
+        users = []
+        for row in rows:
+            u_dict = user_payload(row)
+            req = db.execute(
+                "SELECT id, sender_id, receiver_id, status FROM chat_requests "
+                "WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)",
+                (user["id"], row["id"], row["id"], user["id"]),
+            ).fetchone()
+            has_conv = bool(direct_conversation_ids(db, [user["id"], row["id"]]))
+            if has_conv or (req and req["status"] == "accepted"):
+                u_dict["relationship"] = "connected"
+                u_dict["request_id"] = req["id"] if req else None
+            elif req and req["status"] == "pending":
+                u_dict["relationship"] = "sent_pending" if req["sender_id"] == user["id"] else "received_pending"
+                u_dict["request_id"] = req["id"]
+            elif req and req["status"] == "declined":
+                u_dict["relationship"] = "declined"
+                u_dict["request_id"] = req["id"]
+            else:
+                u_dict["relationship"] = "none"
+                u_dict["request_id"] = None
+            users.append(u_dict)
+    return jsonify(users=users)
+
+
+@app.get("/api/requests")
+def list_requests():
+    user = require_user()
+    if user is None:
+        return jsonify(error="Sign in to continue."), 401
+    with connect_db() as db:
+        incoming_rows = db.execute(
+            "SELECT r.id, r.sender_id, r.status, r.created_at, u.username, u.public_key "
+            "FROM chat_requests r JOIN users u ON u.id = r.sender_id "
+            "WHERE r.receiver_id = ? AND r.status = 'pending' ORDER BY r.id DESC",
+            (user["id"],),
+        ).fetchall()
+        sent_rows = db.execute(
+            "SELECT r.id, r.receiver_id, r.status, r.created_at, u.username, u.public_key "
+            "FROM chat_requests r JOIN users u ON u.id = r.receiver_id "
+            "WHERE r.sender_id = ? ORDER BY r.id DESC LIMIT 40",
+            (user["id"],),
+        ).fetchall()
+        incoming = [
+            {
+                "id": row["id"],
+                "sender": {"id": row["sender_id"], "username": row["username"]},
+                "status": row["status"],
+                "created_at": row["created_at"],
+            }
+            for row in incoming_rows
+        ]
+        sent = [
+            {
+                "id": row["id"],
+                "receiver": {"id": row["receiver_id"], "username": row["username"]},
+                "status": row["status"],
+                "created_at": row["created_at"],
+            }
+            for row in sent_rows
+        ]
+    return jsonify(incoming=incoming, sent=sent, pending_count=len(incoming))
+
+
+@app.post("/api/requests")
+def send_chat_request():
+    user = require_user()
+    if user is None:
+        return jsonify(error="Sign in to continue."), 401
+    data = request.get_json(silent=True) or {}
+    receiver_id = str(data.get("receiver_id", "")).strip().upper()
+    if not receiver_id:
+        return jsonify(error="Target user ID is required."), 400
+    if receiver_id == user["id"]:
+        return jsonify(error="You cannot send a chat request to yourself."), 400
+
+    with connect_db() as db:
+        target = db.execute("SELECT id, username FROM users WHERE id = ?", (receiver_id,)).fetchone()
+        if not target:
+            return jsonify(error="User not found."), 404
+
+        existing = db.execute(
+            "SELECT * FROM chat_requests WHERE "
+            "(sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)",
+            (user["id"], receiver_id, receiver_id, user["id"]),
+        ).fetchone()
+        now_str = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
+
+        if existing:
+            if existing["status"] == "accepted":
+                return jsonify(error="You are already connected with this user.", status="accepted"), 400
+            if existing["sender_id"] == user["id"] and existing["status"] == "pending":
+                return jsonify(error="Request already sent. Waiting for response.", status="pending"), 400
+            if existing["sender_id"] == receiver_id and existing["status"] == "pending":
+                # Mutual request: Auto-accept!
+                db.execute(
+                    "UPDATE chat_requests SET status = 'accepted', updated_at = ? WHERE id = ?",
+                    (now_str, existing["id"]),
+                )
+                req_id = existing["id"]
+                conv_ids = direct_conversation_ids(db, [user["id"], receiver_id])
+                if conv_ids:
+                    conv_id = conv_ids[0]
+                else:
+                    cursor = db.execute("INSERT INTO conversations (title) VALUES (NULL)")
+                    conv_id = cursor.lastrowid
+                    db.executemany(
+                        "INSERT INTO members (conversation_id, user_id) VALUES (?, ?)",
+                        [(conv_id, user["id"]), (conv_id, receiver_id)],
+                    )
+                row = db.execute("SELECT * FROM conversations WHERE id = ?", (conv_id,)).fetchone()
+                conv_summary = conversation_summary(db, row, user["id"])
+                if FIREBASE_MESSAGES:
+                    try:
+                        FIREBASE_MESSAGES.reference(f"accounts/requests/{req_id}").update({
+                            "status": "accepted",
+                            "updated_at": now_str,
+                        })
+                    except Exception as e:
+                        print(f"WARNING: Firebase request update failed: {e}", flush=True)
+                return jsonify(
+                    message="You both sent requests! Connected automatically.",
+                    status="accepted",
+                    conversation=conv_summary,
+                ), 200
+            db.execute(
+                "UPDATE chat_requests SET sender_id = ?, receiver_id = ?, status = 'pending', updated_at = ? WHERE id = ?",
+                (user["id"], receiver_id, now_str, existing["id"]),
+            )
+            req_id = existing["id"]
+        else:
+            cursor = db.execute(
+                "INSERT INTO chat_requests (sender_id, receiver_id, status) VALUES (?, ?, 'pending')",
+                (user["id"], receiver_id),
+            )
+            req_id = cursor.lastrowid
+
+        if FIREBASE_MESSAGES:
+            try:
+                FIREBASE_MESSAGES.reference(f"accounts/requests/{req_id}").set({
+                    "id": req_id,
+                    "sender_id": user["id"],
+                    "receiver_id": receiver_id,
+                    "status": "pending",
+                    "created_at": now_str,
+                    "updated_at": now_str,
+                })
+            except Exception as e:
+                print(f"WARNING: Firebase request save failed: {e}", flush=True)
+
+    return jsonify(message="Chat request sent successfully.", request_id=req_id, status="pending"), 201
+
+
+@app.post("/api/requests/<int:request_id>/accept")
+def accept_chat_request(request_id: int):
+    user = require_user()
+    if user is None:
+        return jsonify(error="Sign in to continue."), 401
+    with connect_db() as db:
+        req_row = db.execute(
+            "SELECT * FROM chat_requests WHERE id = ?", (request_id,)
+        ).fetchone()
+        if not req_row:
+            return jsonify(error="Chat request not found."), 404
+        if req_row["receiver_id"] != user["id"]:
+            return jsonify(error="You can only accept requests sent to you."), 403
+        now_str = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
+        db.execute(
+            "UPDATE chat_requests SET status = 'accepted', updated_at = ? WHERE id = ?",
+            (now_str, request_id),
+        )
+        sender_id = req_row["sender_id"]
+        conv_ids = direct_conversation_ids(db, [user["id"], sender_id])
+        if conv_ids:
+            conv_id = conv_ids[0]
+        else:
+            cursor = db.execute("INSERT INTO conversations (title) VALUES (NULL)")
+            conv_id = cursor.lastrowid
+            db.executemany(
+                "INSERT INTO members (conversation_id, user_id) VALUES (?, ?)",
+                [(conv_id, user["id"]), (conv_id, sender_id)],
+            )
+            if FIREBASE_MESSAGES:
+                try:
+                    FIREBASE_MESSAGES.reference(f"accounts/conversations/{conv_id}").set({
+                        "id": conv_id,
+                        "title": None,
+                        "created_at": now_str,
+                    })
+                    FIREBASE_MESSAGES.reference("accounts/members").update({
+                        f"{conv_id}_{user['id']}": {"conversation_id": conv_id, "user_id": user["id"]},
+                        f"{conv_id}_{sender_id}": {"conversation_id": conv_id, "user_id": sender_id},
+                    })
+                except Exception as e:
+                    print(f"WARNING: Firebase conversation sync failed: {e}", flush=True)
+
+        row = db.execute("SELECT * FROM conversations WHERE id = ?", (conv_id,)).fetchone()
+        summary = conversation_summary(db, row, user["id"])
+
+        if FIREBASE_MESSAGES:
+            try:
+                FIREBASE_MESSAGES.reference(f"accounts/requests/{request_id}").update({
+                    "status": "accepted",
+                    "updated_at": now_str,
+                })
+            except Exception as e:
+                print(f"WARNING: Firebase request update failed: {e}", flush=True)
+
+    return jsonify(ok=True, conversation=summary)
+
+
+@app.post("/api/requests/<int:request_id>/decline")
+def decline_chat_request(request_id: int):
+    user = require_user()
+    if user is None:
+        return jsonify(error="Sign in to continue."), 401
+    with connect_db() as db:
+        req_row = db.execute("SELECT * FROM chat_requests WHERE id = ?", (request_id,)).fetchone()
+        if not req_row:
+            return jsonify(error="Chat request not found."), 404
+        if req_row["receiver_id"] != user["id"]:
+            return jsonify(error="You can only decline requests sent to you."), 403
+        now_str = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
+        db.execute(
+            "UPDATE chat_requests SET status = 'declined', updated_at = ? WHERE id = ?",
+            (now_str, request_id),
+        )
+        if FIREBASE_MESSAGES:
+            try:
+                FIREBASE_MESSAGES.reference(f"accounts/requests/{request_id}").update({
+                    "status": "declined",
+                    "updated_at": now_str,
+                })
+            except Exception as e:
+                print(f"WARNING: Firebase request update failed: {e}", flush=True)
+    return jsonify(ok=True)
+
+
+@app.delete("/api/requests/<int:request_id>")
+def delete_chat_request(request_id: int):
+    user = require_user()
+    if user is None:
+        return jsonify(error="Sign in to continue."), 401
+    with connect_db() as db:
+        req_row = db.execute("SELECT * FROM chat_requests WHERE id = ?", (request_id,)).fetchone()
+        if not req_row:
+            return jsonify(error="Chat request not found."), 404
+        if user["id"] not in (req_row["sender_id"], req_row["receiver_id"]):
+            return jsonify(error="Unauthorized."), 403
+        db.execute("DELETE FROM chat_requests WHERE id = ?", (request_id,))
+        if FIREBASE_MESSAGES:
+            try:
+                FIREBASE_MESSAGES.reference(f"accounts/requests/{request_id}").delete()
+            except Exception as e:
+                print(f"WARNING: Firebase request delete failed: {e}", flush=True)
+    return jsonify(ok=True)
 
 
 def conversation_for_user(db: sqlite3.Connection, conversation_id: int, user_id: str) -> bool:
@@ -760,22 +1086,6 @@ def list_conversations():
     return jsonify(conversations=conversations)
 
 
-def direct_conversation_ids(db: sqlite3.Connection, member_ids: list[str]) -> list[int]:
-    return [
-        row["id"]
-        for row in db.execute(
-            "SELECT conversations.id FROM conversations "
-            "WHERE (conversations.title IS NULL OR trim(conversations.title) = '') "
-            "AND (SELECT COUNT(*) FROM members WHERE members.conversation_id = conversations.id) = 2 "
-            "AND EXISTS (SELECT 1 FROM members WHERE members.conversation_id = conversations.id "
-            "AND members.user_id = ?) "
-            "AND EXISTS (SELECT 1 FROM members WHERE members.conversation_id = conversations.id "
-            "AND members.user_id = ?) ORDER BY conversations.id",
-            member_ids,
-        ).fetchall()
-    ]
-
-
 def merge_firebase_conversations(canonical_id: int, duplicate_ids: list[int]) -> None:
     updates: dict[str, Any] = {}
     canonical_path = f"conversations/{canonical_id}/messages"
@@ -819,7 +1129,10 @@ def create_conversation():
             return jsonify(error="One or more chat IDs could not be found."), 404
 
         if len(member_ids) == 2 and title is None:
+            other_id = [m for m in member_ids if m != user["id"]][0]
             existing_ids = direct_conversation_ids(db, member_ids)
+            if not existing_ids and not is_request_accepted(db, user["id"], other_id):
+                return jsonify(error="A chat request must be sent and accepted before starting a direct chat."), 403
             if existing_ids:
                 canonical_id = existing_ids[0]
                 duplicate_ids = existing_ids[1:]
@@ -964,6 +1277,10 @@ def send_message(conversation_id: int):
         }
         if user["id"] not in member_ids or set(envelopes) != member_ids:
             return jsonify(error="Chat members do not match the encrypted key recipients."), 400
+        if len(member_ids) == 2:
+            other_id = [m for m in member_ids if m != user["id"]][0]
+            if not is_request_accepted(db, user["id"], other_id):
+                return jsonify(error="Chat request must be accepted before sending messages."), 403
     message = save_stored_message(conversation_id, user, {
         "ciphertext": ciphertext,
         "iv": iv,

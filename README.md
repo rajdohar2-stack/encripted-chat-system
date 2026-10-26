@@ -55,6 +55,9 @@ Keep both tasks and this PC online while using the link. Stop the tunnel task wi
 
 ## Local Setup & Development (Windows)
 
+### Automatic GitHub Sync
+When this folder is opened in VS Code, the **Auto-sync changes to GitHub** task starts. After project changes have been quiet for five seconds, it stages Git-visible changes, commits them, and pushes the current branch to `origin`. Git's ignore rules still apply, so keep credentials, local databases, and other private files out of Git. GitHub authentication must already be configured. If a push fails, the task reports the error in its terminal; it never force-pushes. Stop the task from **Terminal > Terminate Task** to pause automatic syncing.
+
 ### 1. Install Dependencies
 ```powershell
 python -m venv .venv
