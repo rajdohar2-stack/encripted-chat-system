@@ -11,6 +11,7 @@ All messages, attachments, and private keys are encrypted directly inside the br
 * **Frontend (GitHub Pages)**: [https://rajdohar2-stack.github.io/encripted-chat-system/](https://rajdohar2-stack.github.io/encripted-chat-system/)
 * **Backend API (Render)**: `https://encripted-chat-system.onrender.com`
 * **Health Check**: [https://encripted-chat-system.onrender.com/api/health](https://encripted-chat-system.onrender.com/api/health)
+* **Admin encrypted-record viewer (GitHub Pages)**: [https://rajdohar2-stack.github.io/encripted-chat-system/database.html](https://rajdohar2-stack.github.io/encripted-chat-system/database.html)
 
 ---
 
@@ -92,6 +93,7 @@ python server.py
 3. Add Environment Variables:
    * `COMMONROOM_HOSTED`: `true`
    * `COMMONROOM_ALLOWED_ORIGINS`: `https://rajdohar2-stack.github.io`
+   * `COMMONROOM_ADMIN_USER_IDS`: comma-separated account IDs allowed to use the encrypted-record viewer
    * `FIREBASE_DATABASE_URL`: `https://your-project-id-default-rtdb.<region>.firebasedatabase.app`
    * `FIREBASE_CREDENTIALS_JSON`: *(Paste the entire contents of your Firebase service-account JSON file)*
    * `PYTHON_VERSION`: `3.13.4`
@@ -114,6 +116,7 @@ python server.py
   * Click **Backup** (bottom-left) to download an additional `commonroom-key-<ID>.json` copy. Keep it somewhere safe as a fallback.
   * The server stores only ciphertext, but anyone with both access to the backup and the account password can unlock it. If you forget the password, the encrypted key cannot be recovered. Cloud storage depends on the configured hosting and Firebase services and is not a substitute for keeping an independent backup.
 * **Auditing & Viewing Encrypted Payloads**:
-  1. **Localhost Admin Dashboard**: Visit `https://127.0.0.1:5000/encrypted-messages.html` (`database.html`) from this PC. The admin must sign in with an account ID listed in `COMMONROOM_ADMIN_USER_IDS` in `.env`; every admin API endpoint checks this allowlist and blocks non-local requests.
-  2. **Chat access**: Regular accounts can access encrypted records only for conversations they belong to, as required for end-to-end encrypted message delivery. The administrator dashboard is the only app viewer for records across all conversations.
-  3. **Firebase Console**: Realtime Database stores encrypted records under `/conversations` and account data under `/accounts`.
+  1. **Hosted admin viewer**: Visit `https://rajdohar2-stack.github.io/encripted-chat-system/database.html` to inspect records stored by Render/Firebase. Configure `COMMONROOM_ADMIN_USER_IDS` in Render and sign in with an allowlisted account. New records appear automatically within five seconds.
+  2. **Local admin viewer**: Visit `https://127.0.0.1:5000/encrypted-messages.html` to inspect this PC's local SQLite message database. The admin ID must be allowlisted in `.env`; requests must come from this PC.
+  3. **Chat access**: Regular accounts can access encrypted records only for conversations they belong to, as required for end-to-end encrypted message delivery. The admin viewer is the only app viewer for records across all conversations.
+  4. **Firebase Console**: Realtime Database stores encrypted records under `/conversations` and account data under `/accounts`.

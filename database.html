@@ -571,7 +571,7 @@
             <span id="storeStatus" class="status">Checking server</span>
         </div>
         <div class="notice"><span aria-hidden="true">i</span>
-            <div><strong>Administrator-only viewer.</strong> This page shows ciphertext, IVs, wrapped AES keys, and message metadata. It is available only from this PC after signing in with an account ID explicitly configured in <code>COMMONROOM_ADMIN_USER_IDS</code>.</div>
+            <div><strong>Administrator-only viewer.</strong> This page shows ciphertext, IVs, wrapped AES keys, and message metadata. Sign in with an account ID explicitly configured in <code>COMMONROOM_ADMIN_USER_IDS</code>. Local API access is restricted to this PC.</div>
         </div>
         <form id="adminLogin" class="admin-login">
             <label>Username<input id="adminUsername" autocomplete="username" required></label>
@@ -600,7 +600,7 @@
                     <option value="image">Images</option>
                 </select>
                 <button id="refreshButton" class="button" type="button" disabled>Refresh</button>
-                <span id="recordCount" class="count">0 records</span>
+                <span id="recordCount" class="count">0 records · refreshes every 3 seconds</span>
             </div>
             <div class="table-wrap">
                 <table>
@@ -641,12 +641,16 @@
         </div>
     </main>
     <div id="toast" class="toast hidden" role="status"></div>
+    <script src="./config.js"></script>
     <script>
-        const API = `https://${window.location.hostname}:5000/api`;
+        const API_BASE = window.COMMONROOM_API_URL?.trim() ||
+            (window.location.hostname.endsWith(".github.io") ? "" : window.location.origin);
+        const API = API_BASE ? `${API_BASE.replace(/\/+$/, "")}/api` : "";
         const $ = (selector) => document.querySelector(selector);
         const state = {
             adminToken: null,
             adminUsername: null,
+            poll: null,
             conversations: [],
             messages: [],
             cursor: "0",
@@ -702,10 +706,15 @@
                 $("#storeStatus").textContent = "Server unavailable";
             }
         }
-        async function loadConversations() {
+        async function refreshStorageStatus() {
             const storage = await api("/admin/status");
-            $("#databaseLocation").textContent = storage.database_file ? `Separate encrypted-message database: ${storage.database_file}` : "Messages are stored in Firebase Realtime Database. Viewer access is limited to authorized administrators on this PC.";
+            $("#databaseLocation").textContent = storage.database_file
+                ? `Separate encrypted-message database: ${storage.database_file}`
+                : "Messages are stored in Firebase Realtime Database. New records refresh automatically.";
+        }
+        async function loadConversations() {
             const result = await api("/admin/conversations");
+            const previousConversationId = $("#conversationSelect").value;
             state.conversations = result.conversations;
             $("#conversationTotal").textContent = state.conversations.length.toLocaleString();
             $("#identityLabel").textContent = `Administrator: ${state.adminUsername}`;
@@ -725,7 +734,13 @@
             $("#recordSearch").disabled = state.conversations.length === 0;
             $("#kindFilter").disabled = state.conversations.length === 0;
             $("#refreshButton").disabled = false;
-            if (state.conversations.length) {
+            const previousConversationExists = state.conversations.some(
+                (conversation) => String(conversation.id) === previousConversationId
+            );
+            if (previousConversationExists) {
+                select.value = previousConversationId;
+                await loadMessages(false);
+            } else if (state.conversations.length) {
                 select.value = String(state.conversations[0].id);
                 await loadMessages(true);
             } else renderRows();
@@ -746,7 +761,7 @@
                 const searchable = `${message.id} ${message.sender_name || ""} ${message.sender_id || ""} ${message.kind || ""}`.toLocaleLowerCase();
                 return matchesKind && (!query || searchable.includes(query));
             });
-            $("#recordCount").textContent = `${filtered.length} shown · ${state.messages.length} loaded`;
+            $("#recordCount").textContent = `${filtered.length} shown · ${state.messages.length} loaded · refreshes every 3 seconds`;
             $("#loadedTotal").textContent = state.messages.length.toLocaleString();
             $("#imageTotal").textContent = state.messages.filter((message) => message.kind === "image").length.toLocaleString();
             if (!filtered.length) {
@@ -871,11 +886,21 @@
                 });
                 state.adminToken = result.token;
                 state.adminUsername = result.username;
+                await refreshStorageStatus();
                 await loadConversations();
                 $("#adminPassword").value = "";
                 $("#adminLogin").classList.add("hidden");
                 $("#adminDashboard").classList.remove("hidden");
                 $("#adminLogoutButton").classList.remove("hidden");
+                if (state.poll) clearInterval(state.poll);
+                state.poll = setInterval(async () => {
+                    if (!state.adminToken || state.loading) return;
+                    try {
+                        await loadMessages(false);
+                    } catch (refreshError) {
+                        showToast(refreshError.message);
+                    }
+                }, 3000);
             } catch (error) {
                 if (state.adminToken) {
                     try {
@@ -893,6 +918,8 @@
         });
 
         $("#adminLogoutButton").addEventListener("click", async () => {
+            if (state.poll) clearInterval(state.poll);
+            state.poll = null;
             try {
                 await api("/session", { method: "DELETE" });
             } catch (error) {

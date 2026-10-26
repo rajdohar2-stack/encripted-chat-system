@@ -535,9 +535,7 @@ def issue_session(db: sqlite3.Connection, user_id: str) -> str:
 @app.after_request
 def add_browser_headers(response):
     origin = request.headers.get("Origin", "").rstrip("/")
-    if not request.path.startswith("/api/admin/") and (
-        "*" in ALLOWED_ORIGINS or origin in ALLOWED_ORIGINS
-    ):
+    if "*" in ALLOWED_ORIGINS or origin in ALLOWED_ORIGINS:
         response.headers["Access-Control-Allow-Origin"] = "*" if "*" in ALLOWED_ORIGINS else origin
         response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type"
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
@@ -582,7 +580,7 @@ def chat_page():
 @app.get("/database.html")
 @app.get("/encrypted-messages.html")
 def database_page():
-    if not is_loopback_request() or not is_same_origin_request():
+    if not IS_HOSTED and (not is_loopback_request() or not is_same_origin_request()):
         return "Encrypted records are available only on this PC. Open https://127.0.0.1:5000/encrypted-messages.html.", 403
     return send_from_directory(PROJECT_DIR, "database.html")
 
@@ -621,13 +619,14 @@ def health():
 
 
 def local_admin_error():
-    if not is_loopback_request() or not is_same_origin_request():
+    if not IS_HOSTED and (not is_loopback_request() or not is_same_origin_request()):
         return jsonify(error="Encrypted records can only be viewed from this PC. Open https://127.0.0.1:5000/encrypted-messages.html."), 403
     user = require_user()
     if user is None:
         return jsonify(error="Sign in with an administrator account to view encrypted records."), 401
     if not ADMIN_USER_IDS:
-        return jsonify(error="Admin access is not configured. Add your account ID to COMMONROOM_ADMIN_USER_IDS in .env and restart the server."), 403
+        setting_location = "the Render environment variables" if IS_HOSTED else ".env"
+        return jsonify(error=f"Admin access is not configured. Add your account ID to COMMONROOM_ADMIN_USER_IDS in {setting_location} and restart the server."), 403
     if user["id"].upper() not in ADMIN_USER_IDS:
         return jsonify(error="This account is not authorized to view encrypted records."), 403
     return None
