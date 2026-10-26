@@ -1,6 +1,6 @@
 # Commonroom
 
-A Python chat system with browser-side **End-to-End Encryption (E2EE)**, unique 8-character user IDs, 1-on-1 and group conversations, and encrypted image sharing (up to 8 MB). 
+A Python chat system with browser-side **End-to-End Encryption (E2EE)**, unique 8-character user IDs, 1-on-1 and group conversations, emoji messaging, and encrypted image sharing (up to 8 MB).
 
 All messages, attachments, and private keys are encrypted directly inside the browser using the native **Web Crypto API** (`RSA-OAEP`, `AES-256-GCM`, `PBKDF2`). The server and database operate under zero knowledge and never have access to plaintext messages or private keys.
 
@@ -44,7 +44,7 @@ Keep both tasks and this PC online while using the link. Stop the tunnel task wi
 
 * **Key Generation**: 2048-bit **RSA-OAEP** key pair (SHA-256) generated in the browser on registration. Public key is uploaded as JWK; private key never leaves the client in plaintext.
 * **Encrypted Key Backup**: The RSA private key is encrypted in the browser using **AES-256-GCM** with a key derived from the account password using **PBKDF2** (310,000 SHA-256 iterations). The encrypted backup is stored with the account and cached in browser `localStorage`; the server never receives the plaintext private key or password-derived encryption key.
-* **Per-Message Hybrid Encryption**: For every message or image:
+* **Per-Message Hybrid Encryption**: For every text/emoji message or image:
   1. A fresh 256-bit **AES-256-GCM** key and 12-byte IV are generated.
   2. The message/image bytes are encrypted with this AES key.
   3. The AES key is wrapped separately for each conversation member using their RSA-OAEP public key, creating an `envelopes` map.

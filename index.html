@@ -1009,9 +1009,46 @@
         }
         
         .composer-wrap {
+            position: relative;
             padding: 13px 24px 20px;
             border-top: 1px solid var(--line);
             background: #fffefa;
+        }
+
+        .emoji-picker {
+            position: absolute;
+            right: 24px;
+            bottom: 100px;
+            z-index: 4;
+            display: grid;
+            grid-template-columns: repeat(8, 36px);
+            gap: 4px;
+            max-width: calc(100vw - 24px);
+            max-height: 190px;
+            overflow-y: auto;
+            padding: 9px;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            background: var(--surface);
+            box-shadow: var(--shadow);
+        }
+
+        .emoji-option {
+            display: grid;
+            place-items: center;
+            width: 36px;
+            height: 36px;
+            border: 0;
+            border-radius: 6px;
+            background: transparent;
+            cursor: pointer;
+            font-size: 21px;
+        }
+
+        .emoji-option:hover,
+        .emoji-option:focus-visible {
+            background: #edf2e8;
+            outline: none;
         }
         
         .composer {
@@ -1042,6 +1079,7 @@
         }
         
         .attach-button,
+        .emoji-button,
         .send-button {
             flex: 0 0 39px;
             display: grid;
@@ -1057,6 +1095,15 @@
         .attach-button {
             background: #edf2e8;
             color: var(--ink-soft);
+        }
+
+        .emoji-button {
+            background: #edf2e8;
+            color: var(--ink-soft);
+        }
+
+        .emoji-button[aria-expanded="true"] {
+            background: var(--green);
         }
         
         .send-button {
@@ -1457,6 +1504,7 @@
                 font-size: 12px;
             }
             .attach-button,
+            .emoji-button,
             .send-button {
                 flex-basis: 34px;
                 width: 34px;
@@ -1582,7 +1630,8 @@
                         <p>Start a conversation with a chat ID. Your messages and pictures are encrypted before sending.</p><button id="welcomeNewChat" class="primary" type="button" style="width:auto;padding:11px 15px">Start a conversation <span aria-hidden="true">&#8594;</span></button></div>
                 </div>
                 <div id="composerWrap" class="composer-wrap hidden">
-                    <form id="composer" class="composer"><input id="imageInput" class="hidden" type="file" accept="image/*"><button id="attachButton" class="attach-button" type="button" title="Attach an image" aria-label="Attach an image">+</button><textarea id="messageInput" rows="1" placeholder="Write something kind..."
+                    <div id="emojiPicker" class="emoji-picker hidden" role="group" aria-label="Choose an emoji"></div>
+                    <form id="composer" class="composer"><input id="imageInput" class="hidden" type="file" accept="image/*"><button id="attachButton" class="attach-button" type="button" title="Attach an image" aria-label="Attach an image">+</button><button id="emojiButton" class="emoji-button" type="button" title="Add an emoji" aria-label="Add an emoji" aria-expanded="false" aria-controls="emojiPicker">☺</button><textarea id="messageInput" rows="1" placeholder="Write something kind..."
                             aria-label="Message"></textarea><button id="sendButton" class="send-button" type="submit" title="Send message" aria-label="Send message">&#8593;</button></form>
                     <p class="composer-note">END-TO-END ENCRYPTED · IMAGES UP TO 8 MB</p>
                 </div>
@@ -2234,6 +2283,50 @@
       if (!file.type.startsWith("image/")) return toast("Choose an image file to share.");
       if (file.size > 8 * 1024 * 1024) return toast("Images must be 8 MB or smaller.");
       await sendPayload(new Uint8Array(await file.arrayBuffer()), "image", file.name);
+    });
+
+    const commonEmojis = [
+      "😀", "😃", "😄", "😁", "😆", "😅", "😂", "🤣",
+      "😊", "😇", "🙂", "🙃", "😉", "😍", "🥰", "😘",
+      "😋", "😎", "🤗", "🤔", "🥳", "😭", "😴", "🙏",
+      "👏", "👍", "👎", "❤️", "💛", "💚", "💙", "💜",
+      "🔥", "🎉", "✨", "💯", "☕", "🌸", "🌈", "🐱",
+    ];
+    const emojiPicker = $("#emojiPicker");
+    for (const emoji of commonEmojis) {
+      const option = document.createElement("button");
+      option.type = "button";
+      option.className = "emoji-option";
+      option.textContent = emoji;
+      option.setAttribute("aria-label", `Insert ${emoji}`);
+      option.addEventListener("click", () => {
+        const input = $("#messageInput");
+        const start = input.selectionStart;
+        const end = input.selectionEnd;
+        input.setRangeText(emoji, start, end, "end");
+        input.focus();
+      });
+      emojiPicker.append(option);
+    }
+
+    $("#emojiButton").addEventListener("click", () => {
+      const isOpen = !emojiPicker.classList.contains("hidden");
+      emojiPicker.classList.toggle("hidden", isOpen);
+      $("#emojiButton").setAttribute("aria-expanded", String(!isOpen));
+      if (!isOpen) emojiPicker.querySelector(".emoji-option")?.focus();
+    });
+    document.addEventListener("click", (event) => {
+      if (!event.target.closest("#emojiPicker, #emojiButton")) {
+        emojiPicker.classList.add("hidden");
+        $("#emojiButton").setAttribute("aria-expanded", "false");
+      }
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !emojiPicker.classList.contains("hidden")) {
+        emojiPicker.classList.add("hidden");
+        $("#emojiButton").setAttribute("aria-expanded", "false");
+        $("#emojiButton").focus();
+      }
     });
 
     function openNewChat() {
