@@ -67,6 +67,12 @@ pip install -r requirements.txt
 ```
 
 ### 2. Run the Server
+To allow one account to use the local encrypted-record administrator viewer, create a `.env` file in the project folder and add only the administrator account ID:
+```dotenv
+COMMONROOM_ADMIN_USER_IDS=YOUR_8_CHARACTER_ACCOUNT_ID
+```
+Find the ID in the chat app's profile. Add multiple explicitly trusted admin IDs as a comma-separated list. Restart the server after changing this setting. Without an allowlist entry, all encrypted-record admin APIs deny access. The viewer additionally requires the admin to sign in and only accepts requests from this PC.
+
 ```powershell
 python server.py
 ```
@@ -108,7 +114,6 @@ python server.py
   * Click **Backup** (bottom-left) to download an additional `commonroom-key-<ID>.json` copy. Keep it somewhere safe as a fallback.
   * The server stores only ciphertext, but anyone with both access to the backup and the account password can unlock it. If you forget the password, the encrypted key cannot be recovered. Cloud storage depends on the configured hosting and Firebase services and is not a substitute for keeping an independent backup.
 * **Auditing & Viewing Encrypted Payloads**:
-  1. **In-Chat Toggle**: Click **"Show encrypted"** in the top chat header bar to view the raw JSON ciphertext payload of any message.
-  2. **My Encrypted Records**: Open `/my-encrypted.html` on any device to inspect raw encrypted message records for your conversations.
-  3. **Localhost Admin Dashboard**: When running locally, visit `https://127.0.0.1:5000/encrypted-messages.html` (`database.html`) to inspect ciphertext, IVs, and envelopes across all conversations (blocked on public hosting for security).
-  4. **Firebase Console**: Realtime Database inspectable live in the Firebase console under `/conversations` and `/accounts`.
+  1. **Localhost Admin Dashboard**: Visit `https://127.0.0.1:5000/encrypted-messages.html` (`database.html`) from this PC. The admin must sign in with an account ID listed in `COMMONROOM_ADMIN_USER_IDS` in `.env`; every admin API endpoint checks this allowlist and blocks non-local requests.
+  2. **Chat access**: Regular accounts can access encrypted records only for conversations they belong to, as required for end-to-end encrypted message delivery. The administrator dashboard is the only app viewer for records across all conversations.
+  3. **Firebase Console**: Realtime Database stores encrypted records under `/conversations` and account data under `/accounts`.

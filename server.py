@@ -26,6 +26,11 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 PROJECT_DIR = Path(__file__).resolve().parent
 load_dotenv(PROJECT_DIR / ".env")
+ADMIN_USER_IDS = frozenset(
+    user_id.strip().upper()
+    for user_id in os.getenv("COMMONROOM_ADMIN_USER_IDS", "").split(",")
+    if user_id.strip()
+)
 IS_HOSTED = (
     os.getenv("COMMONROOM_HOSTED", "").strip().lower() == "true"
     or os.getenv("RENDER", "").strip().lower() == "true"
@@ -618,6 +623,13 @@ def health():
 def local_admin_error():
     if not is_loopback_request() or not is_same_origin_request():
         return jsonify(error="Encrypted records can only be viewed from this PC. Open https://127.0.0.1:5000/encrypted-messages.html."), 403
+    user = require_user()
+    if user is None:
+        return jsonify(error="Sign in with an administrator account to view encrypted records."), 401
+    if not ADMIN_USER_IDS:
+        return jsonify(error="Admin access is not configured. Add your account ID to COMMONROOM_ADMIN_USER_IDS in .env and restart the server."), 403
+    if user["id"].upper() not in ADMIN_USER_IDS:
+        return jsonify(error="This account is not authorized to view encrypted records."), 403
     return None
 
 

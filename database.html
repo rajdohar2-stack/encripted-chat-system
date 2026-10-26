@@ -171,6 +171,38 @@
             color: var(--ink);
         }
 
+        .admin-login {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+            align-items: end;
+            gap: 10px;
+            margin: 18px 0;
+            border: 1px solid var(--line);
+            padding: 16px;
+            background: var(--surface);
+        }
+
+        .admin-login label {
+            display: grid;
+            gap: 6px;
+            color: var(--soft);
+            font-size: 11px;
+            font-weight: 700;
+        }
+
+        .admin-login-error {
+            grid-column: 1 / -1;
+            margin: 0;
+            color: #a64e38;
+            font-size: 12px;
+        }
+
+        @media (max-width: 620px) {
+            .admin-login {
+                grid-template-columns: 1fr;
+            }
+        }
+
         .summary-cards {
             display: grid;
             grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -526,7 +558,7 @@
 <body>
     <header class="topbar">
         <a class="brand" href="index.html"><span class="mark">c.</span><span>commonroom</span></a>
-        <div class="top-actions"><span id="identityLabel">Local administrator</span><a class="back-link" href="index.html">Back to chat</a></div>
+        <div class="top-actions"><span id="identityLabel">Admin sign in required</span><button id="adminLogoutButton" class="button hidden" type="button">Sign out</button><a class="back-link" href="index.html">Back to chat</a></div>
     </header>
     <main class="page">
         <div class="heading-row">
@@ -534,13 +566,20 @@
                 <p class="eyebrow">Message storage</p>
                 <h1>Encrypted records</h1>
                 <p class="subtitle">Inspect the exact encrypted payload saved by the server. Message text is not decrypted on this page.</p>
-                <p id="databaseLocation" class="subtitle">Available only from this PC; no admin key is required.</p>
+                <p id="databaseLocation" class="subtitle">Available only on this PC to administrator accounts explicitly enabled on the server.</p>
             </div>
             <span id="storeStatus" class="status">Checking server</span>
         </div>
         <div class="notice"><span aria-hidden="true">i</span>
-            <div><strong>Local administrator viewer.</strong> This separate page shows ciphertext, IVs, wrapped AES keys, and message metadata. It is restricted to connections from this PC and does not require an admin key. Anyone with an account on this PC can use it. Open it at <code>https://127.0.0.1:5000/encrypted-messages.html</code>.</div>
+            <div><strong>Administrator-only viewer.</strong> This page shows ciphertext, IVs, wrapped AES keys, and message metadata. It is available only from this PC after signing in with an account ID explicitly configured in <code>COMMONROOM_ADMIN_USER_IDS</code>.</div>
         </div>
+        <form id="adminLogin" class="admin-login">
+            <label>Username<input id="adminUsername" autocomplete="username" required></label>
+            <label>Password<input id="adminPassword" type="password" autocomplete="current-password" required></label>
+            <button id="adminLoginButton" class="button primary" type="submit">Sign in as administrator</button>
+            <p id="adminLoginError" class="admin-login-error" role="status"></p>
+        </form>
+        <div id="adminDashboard" class="hidden">
         <section class="summary-cards" aria-label="Storage summary">
             <article class="summary-card"><span>Conversations</span><strong id="conversationTotal">—</strong></article>
             <article class="summary-card"><span>Loaded records</span><strong id="loadedTotal">0</strong></article>
@@ -599,12 +638,15 @@
                 </div>
             </article>
         </section>
+        </div>
     </main>
     <div id="toast" class="toast hidden" role="status"></div>
     <script>
         const API = `https://${window.location.hostname}:5000/api`;
         const $ = (selector) => document.querySelector(selector);
         const state = {
+            adminToken: null,
+            adminUsername: null,
             conversations: [],
             messages: [],
             cursor: "0",
@@ -616,6 +658,7 @@
 
         async function api(path, options = {}) {
             const headers = new Headers(options.headers || {});
+            if (state.adminToken) headers.set("Authorization", `Bearer ${state.adminToken}`);
             if (options.body) headers.set("Content-Type", "application/json");
             let response;
             try {
@@ -661,11 +704,11 @@
         }
         async function loadConversations() {
             const storage = await api("/admin/status");
-            $("#databaseLocation").textContent = storage.database_file ? `Separate encrypted-message database: ${storage.database_file}` : "Messages are stored in Firebase Realtime Database. Viewer access is limited to this PC.";
+            $("#databaseLocation").textContent = storage.database_file ? `Separate encrypted-message database: ${storage.database_file}` : "Messages are stored in Firebase Realtime Database. Viewer access is limited to authorized administrators on this PC.";
             const result = await api("/admin/conversations");
             state.conversations = result.conversations;
             $("#conversationTotal").textContent = state.conversations.length.toLocaleString();
-            $("#identityLabel").textContent = "Administrator";
+            $("#identityLabel").textContent = `Administrator: ${state.adminUsername}`;
             const select = $("#conversationSelect");
             select.replaceChildren();
             const placeholder = document.createElement("option");
@@ -813,13 +856,66 @@
             if (state.selectedMessage) copyValue(JSON.stringify(state.selectedMessage.envelopes || {}, null, 2));
         });
 
+        $("#adminLogin").addEventListener("submit", async (event) => {
+            event.preventDefault();
+            const button = $("#adminLoginButton");
+            button.disabled = true;
+            $("#adminLoginError").textContent = "";
+            try {
+                const result = await api("/login", {
+                    method: "POST",
+                    body: JSON.stringify({
+                        username: $("#adminUsername").value.trim(),
+                        password: $("#adminPassword").value
+                    })
+                });
+                state.adminToken = result.token;
+                state.adminUsername = result.username;
+                await loadConversations();
+                $("#adminPassword").value = "";
+                $("#adminLogin").classList.add("hidden");
+                $("#adminDashboard").classList.remove("hidden");
+                $("#adminLogoutButton").classList.remove("hidden");
+            } catch (error) {
+                if (state.adminToken) {
+                    try {
+                        await api("/session", { method: "DELETE" });
+                    } catch (cleanupError) {
+                        console.warn("Could not revoke rejected admin session:", cleanupError);
+                    }
+                }
+                state.adminToken = null;
+                state.adminUsername = null;
+                $("#adminLoginError").textContent = error.message;
+            } finally {
+                button.disabled = false;
+            }
+        });
+
+        $("#adminLogoutButton").addEventListener("click", async () => {
+            try {
+                await api("/session", { method: "DELETE" });
+            } catch (error) {
+                console.warn("Could not revoke admin session:", error);
+            }
+            state.adminToken = null;
+            state.adminUsername = null;
+            state.conversations = [];
+            state.messages = [];
+            state.selectedMessage = null;
+            $("#adminDashboard").classList.add("hidden");
+            $("#adminLogin").classList.remove("hidden");
+            $("#adminLogoutButton").classList.add("hidden");
+            $("#identityLabel").textContent = "Admin sign in required";
+            $("#adminLoginError").textContent = "";
+            $("#recordRows").replaceChildren();
+            $("#recordDetail").innerHTML = '<div class="placeholder">Sign in as an administrator to inspect encrypted records.</div>';
+            $("#envelopeDetail").innerHTML = '<div class="placeholder">Sign in as an administrator to inspect encrypted key envelopes.</div>';
+            $("#adminPassword").value = "";
+        });
+
         async function start() {
             await checkStore();
-            try {
-                await loadConversations();
-            } catch (error) {
-                showToast(error.message);
-            }
         }
         start();
     </script>
