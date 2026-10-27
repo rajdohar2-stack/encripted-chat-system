@@ -566,12 +566,12 @@
                 <p class="eyebrow">Message storage</p>
                 <h1>Encrypted records</h1>
                 <p class="subtitle">Inspect the exact encrypted payload saved by the server. Message text is not decrypted on this page.</p>
-                <p id="databaseLocation" class="subtitle">Available only on this PC to administrator accounts explicitly enabled on the server.</p>
+                <p id="databaseLocation" class="subtitle">Checking the configured API and message store.</p>
             </div>
             <span id="storeStatus" class="status">Checking server</span>
         </div>
         <div class="notice"><span aria-hidden="true">i</span>
-            <div><strong>Administrator-only viewer.</strong> This page shows ciphertext, IVs, wrapped AES keys, and message metadata. Sign in with an account ID explicitly configured in <code>COMMONROOM_ADMIN_USER_IDS</code>. Local API access is restricted to this PC.</div>
+            <div><strong>Administrator-only viewer.</strong> This page shows ciphertext, IVs, wrapped AES keys, and message metadata. Sign in with an account ID explicitly configured in <code>COMMONROOM_ADMIN_USER_IDS</code>. <span id="accessScopeNotice">Checking server access requirements.</span></div>
         </div>
         <form id="adminLogin" class="admin-login">
             <label>Username<input id="adminUsername" autocomplete="username" required></label>
@@ -670,7 +670,10 @@
                     headers
                 });
             } catch {
-                throw new Error("Can't connect to the API. Make sure 'Run encrypted chat API' is running and trust the local certificate at %USERPROFILE%\\.commonroom\\lan-root-ca.crt, then reload.");
+                const message = window.COMMONROOM_API_IS_LOCAL
+                    ? "Can't connect to the local API. Make sure 'Run encrypted chat API' is running and trust the local certificate at %USERPROFILE%\\.commonroom\\lan-root-ca.crt, then reload."
+                    : "Can't connect to the hosted API. Check that the Render service is available, then reload.";
+                throw new Error(message);
             }
             const data = await response.json().catch(() => ({}));
             if (!response.ok) throw new Error(data.error || `Request failed (${response.status}).`);
@@ -702,8 +705,19 @@
                 const label = $("#storeStatus");
                 label.textContent = result.message_store === "firebase" ? "Firebase Realtime Database" : "Local SQLite database";
                 label.classList.add("connected");
+                $("#databaseLocation").textContent = window.COMMONROOM_API_IS_LOCAL
+                    ? "Local encrypted records are stored in this PC's SQLite database."
+                    : result.message_store === "firebase"
+                        ? "Hosted encrypted records are stored in Firebase and served by Render."
+                        : "The Render API is reachable but reports local SQLite storage.";
+                $("#accessScopeNotice").textContent = window.COMMONROOM_API_IS_LOCAL
+                    ? "Local API access is restricted to this PC."
+                    : "Hosted access is remote; only accounts allowlisted on the hosted server can view records.";
             } catch {
                 $("#storeStatus").textContent = "Server unavailable";
+                $("#databaseLocation").textContent = window.COMMONROOM_API_IS_LOCAL
+                    ? "Cannot reach the local API. Start the API and trust its local certificate."
+                    : "Cannot reach the hosted API. Check the Render service status and reload.";
             }
         }
         async function refreshStorageStatus() {

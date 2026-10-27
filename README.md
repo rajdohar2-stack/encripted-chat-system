@@ -116,7 +116,7 @@ python server.py
   * Click **Backup** (bottom-left) to download an additional `commonroom-key-<ID>.json` copy. Keep it somewhere safe as a fallback.
   * The server stores only ciphertext, but anyone with both access to the backup and the account password can unlock it. If you forget the password, the encrypted key cannot be recovered. Cloud storage depends on the configured hosting and Firebase services and is not a substitute for keeping an independent backup.
 * **Auditing & Viewing Encrypted Payloads**:
-  1. **Hosted admin viewer**: Visit `https://rajdohar2-stack.github.io/encripted-chat-system/database.html` to inspect records stored by Render/Firebase. Configure `COMMONROOM_ADMIN_USER_IDS` in Render and sign in with an allowlisted account. New records appear automatically within five seconds.
+  1. **Hosted admin viewer**: Visit `https://rajdohar2-stack.github.io/encripted-chat-system/database.html` to inspect records stored by Render/Firebase. Configure `COMMONROOM_ADMIN_USER_IDS` in Render and sign in with an allowlisted account. New records appear automatically within three seconds.
   2. **Local admin viewer**: Visit `https://127.0.0.1:5000/encrypted-messages.html` to inspect this PC's local SQLite message database. The admin ID must be allowlisted in `.env`; requests must come from this PC.
   3. **Chat access**: Regular accounts can access encrypted records only for conversations they belong to, as required for end-to-end encrypted message delivery. The admin viewer is the only app viewer for records across all conversations.
   4. **Firebase Console**: Realtime Database stores encrypted records under `/conversations` and account data under `/accounts`.
