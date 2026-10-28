@@ -17,5 +17,7 @@ services:
         value: /var/data
       - key: COMMONROOM_ALLOWED_ORIGINS
         value: https://rajdohar2-stack.github.io
+      - key: COMMONROOM_ADMIN_USER_IDS
+        value: IZAQ1H5M
       - key: PYTHON_VERSION
         value: 3.13.4

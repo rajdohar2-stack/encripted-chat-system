@@ -299,6 +299,16 @@ def initialize_messages_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS messages_conversation_id_id
                 ON messages(conversation_id, id);
+            CREATE TABLE IF NOT EXISTS message_deletions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                conversation_id INTEGER NOT NULL,
+                message_id TEXT NOT NULL,
+                deleted_by TEXT NOT NULL,
+                deleted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (conversation_id, message_id)
+            );
+            CREATE INDEX IF NOT EXISTS message_deletions_conversation_id_id
+                ON message_deletions(conversation_id, id);
             """
         )
 
@@ -710,7 +720,12 @@ def login():
         if user is None or not check_password_hash(user["password_hash"], password):
             return jsonify(error="Username or password is incorrect."), 401
         token = issue_session(db, user["id"])
-    return jsonify(token=token, user_id=user["id"], username=user["username"])
+    return jsonify(
+        token=token,
+        user_id=user["id"],
+        username=user["username"],
+        public_key=user_payload(user)["public_key"],
+    )
 
 
 @app.get("/api/key-backup")
@@ -1167,6 +1182,33 @@ def read_stored_messages(conversation_id: int, after_id: str) -> list[dict[str, 
     return messages
 
 
+def read_message_deletions(conversation_id: int, after_id: str) -> list[dict[str, Any]]:
+    if FIREBASE_MESSAGES:
+        deletion_query = FIREBASE_MESSAGES.reference(
+            f"conversations/{conversation_id}/deletions"
+        ).order_by_key()
+        if after_id and after_id != "0":
+            deletion_query = deletion_query.start_at(after_id)
+        records = deletion_query.get() or {}
+        return [
+            {"id": deletion_id, **deletion}
+            for deletion_id, deletion in sorted(records.items())
+            if not after_id or after_id == "0" or deletion_id > after_id
+        ][:100]
+
+    try:
+        cursor = max(0, int(after_id or "0"))
+    except ValueError:
+        cursor = 0
+    with connect_db(MESSAGES_DATABASE) as db:
+        rows = db.execute(
+            "SELECT id, message_id, deleted_by, deleted_at FROM message_deletions "
+            "WHERE conversation_id = ? AND id > ? ORDER BY id ASC LIMIT 100",
+            (conversation_id, cursor),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def save_stored_message(conversation_id: int, user: sqlite3.Row, data: dict[str, Any]) -> dict[str, Any]:
     attachment_name = str(data.get("attachment_name") or "")[:120] if data["kind"] == "image" else None
     if FIREBASE_MESSAGES:
@@ -1223,6 +1265,7 @@ def list_conversations():
 def merge_firebase_conversations(canonical_id: int, duplicate_ids: list[int]) -> None:
     updates: dict[str, Any] = {}
     canonical_path = f"conversations/{canonical_id}/messages"
+    canonical_deletions_path = f"conversations/{canonical_id}/deletions"
     for duplicate_id in duplicate_ids:
         duplicate_path = f"conversations/{duplicate_id}/messages"
         records = FIREBASE_MESSAGES.reference(duplicate_path).get() or {}
@@ -1231,7 +1274,12 @@ def merge_firebase_conversations(canonical_id: int, duplicate_ids: list[int]) ->
                 **message,
                 "conversation_id": canonical_id,
             }
+        duplicate_deletions_path = f"conversations/{duplicate_id}/deletions"
+        deletions = FIREBASE_MESSAGES.reference(duplicate_deletions_path).get() or {}
+        for deletion_id, deletion in deletions.items():
+            updates[f"{canonical_deletions_path}/{deletion_id}"] = deletion
         updates[f"conversations/{duplicate_id}/messages"] = None
+        updates[duplicate_deletions_path] = None
     if updates:
         FIREBASE_MESSAGES.reference().update(updates)
 
@@ -1278,6 +1326,11 @@ def create_conversation():
                         with connect_db(MESSAGES_DATABASE) as message_db:
                             message_db.execute(
                                 f"UPDATE messages SET conversation_id = ? "
+                                f"WHERE conversation_id IN ({placeholders})",
+                                [canonical_id, *duplicate_ids],
+                            )
+                            message_db.execute(
+                                f"UPDATE message_deletions SET conversation_id = ? "
                                 f"WHERE conversation_id IN ({placeholders})",
                                 [canonical_id, *duplicate_ids],
                             )
@@ -1329,6 +1382,75 @@ def get_messages(conversation_id: int):
         if not conversation_for_user(db, conversation_id, user["id"]):
             return jsonify(error="Chat not found."), 404
     return jsonify(messages=read_stored_messages(conversation_id, after_id))
+
+
+@app.get("/api/conversations/<int:conversation_id>/message-deletions")
+def get_message_deletions(conversation_id: int):
+    user = require_user()
+    if user is None:
+        return jsonify(error="Sign in to continue."), 401
+    with connect_db() as db:
+        if not conversation_for_user(db, conversation_id, user["id"]):
+            return jsonify(error="Chat not found."), 404
+    after_id = request.args.get("after", default="0", type=str)
+    return jsonify(deletions=read_message_deletions(conversation_id, after_id))
+
+
+@app.delete("/api/conversations/<int:conversation_id>/messages/<path:message_id>")
+def delete_message(conversation_id: int, message_id: str):
+    user = require_user()
+    if user is None:
+        return jsonify(error="Sign in to continue."), 401
+    if not message_id or len(message_id) > 128:
+        return jsonify(error="Message not found."), 404
+
+    with connect_db() as db:
+        if not conversation_for_user(db, conversation_id, user["id"]):
+            return jsonify(error="Chat not found."), 404
+
+    if FIREBASE_MESSAGES:
+        message_path = f"conversations/{conversation_id}/messages/{message_id}"
+        message = FIREBASE_MESSAGES.reference(message_path).get()
+        if not isinstance(message, dict):
+            return jsonify(error="Message not found."), 404
+        if message.get("sender_id") != user["id"]:
+            return jsonify(error="You can only delete messages you sent."), 403
+        deletion_ref = FIREBASE_MESSAGES.reference(
+            f"conversations/{conversation_id}/deletions"
+        ).push()
+        FIREBASE_MESSAGES.reference().update({
+            message_path: None,
+            f"conversations/{conversation_id}/deletions/{deletion_ref.key}": {
+                "message_id": message_id,
+                "deleted_by": user["id"],
+                "deleted_at": datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
+            },
+        })
+    else:
+        try:
+            local_message_id = int(message_id)
+        except ValueError:
+            return jsonify(error="Message not found."), 404
+        with connect_db(MESSAGES_DATABASE) as message_db:
+            message = message_db.execute(
+                "SELECT sender_id FROM messages WHERE conversation_id = ? AND id = ?",
+                (conversation_id, local_message_id),
+            ).fetchone()
+            if message is None:
+                return jsonify(error="Message not found."), 404
+            if message["sender_id"] != user["id"]:
+                return jsonify(error="You can only delete messages you sent."), 403
+            message_db.execute(
+                "INSERT INTO message_deletions (conversation_id, message_id, deleted_by) "
+                "VALUES (?, ?, ?)",
+                (conversation_id, message_id, user["id"]),
+            )
+            message_db.execute(
+                "DELETE FROM messages WHERE conversation_id = ? AND id = ?",
+                (conversation_id, local_message_id),
+            )
+
+    return jsonify(ok=True)
 
 
 @app.get("/api/admin/conversations")

@@ -93,7 +93,7 @@ python server.py
 3. Add Environment Variables:
    * `COMMONROOM_HOSTED`: `true`
    * `COMMONROOM_ALLOWED_ORIGINS`: `https://rajdohar2-stack.github.io`
-   * `COMMONROOM_ADMIN_USER_IDS`: comma-separated account IDs allowed to use the encrypted-record viewer
+   * `COMMONROOM_ADMIN_USER_IDS`: `IZAQ1H5M` (or comma-separated account IDs allowed to use the encrypted-record viewer); keep this in sync with `render.yaml`
    * `FIREBASE_DATABASE_URL`: `https://your-project-id-default-rtdb.<region>.firebasedatabase.app`
    * `FIREBASE_CREDENTIALS_JSON`: *(Paste the entire contents of your Firebase service-account JSON file)*
    * `PYTHON_VERSION`: `3.13.4`
@@ -110,6 +110,7 @@ python server.py
 ## Using the Chat & Managing Private Keys
 
 * **Registration & Login**: Create an account with a username and password (minimum 10 characters). Share your 8-character chat ID to let others send you a conversation request. After signing in on a new browser, the encrypted key backup is downloaded and unlocked locally with your password.
+* **Delete a message**: Use **Delete** beside one of your sent messages and confirm to remove it for everyone in that conversation. Other open clients receive the deletion automatically.
 * **New Devices & Incognito Tabs (Key Backup)**:
   * Accounts created with the current version automatically store a password-encrypted private-key backup with the account. You can sign in on another browser and unlock it with the same password.
   * Existing accounts need to sign in once from a browser that already has their key; that login uploads the encrypted backup. If the key exists only in an export file, import it and sign in to upload it.

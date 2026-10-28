@@ -944,6 +944,21 @@
             justify-content: flex-end;
             margin-right: 3px;
         }
+
+        .message-delete {
+            border: 0;
+            padding: 0;
+            background: transparent;
+            color: #a44e37;
+            cursor: pointer;
+            font: inherit;
+            text-decoration: underline;
+        }
+
+        .message-delete:disabled {
+            cursor: wait;
+            opacity: .6;
+        }
         
         .bubble {
             width: fit-content;
@@ -1657,6 +1672,9 @@
             conversations: [],
             activeConversation: null,
             lastMessageId: "0",
+            lastDeletionId: "0",
+            messageViewVersion: 0,
+            messageLoads: new Set(),
             showEncrypted: false,
             objectUrls: new Set(),
             poll: null,
@@ -1874,8 +1892,9 @@
             localStorage.setItem(vaultKey(userId), JSON.stringify(vault));
             return vault;
         }
-        async function unlockVault(vault, password, userId) {
+        async function unlockVault(vault, password, userId, publicKey) {
             if (!vault || vault.version !== 1 || vault.user_id !== userId) throw new Error("No matching private-key backup was found on this device.");
+            let jwk;
             try {
                 const material = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveKey"]);
                 const wrappingKey = await crypto.subtle.deriveKey({
@@ -1891,14 +1910,17 @@
                     name: "AES-GCM",
                     iv: base64ToBytes(vault.iv)
                 }, wrappingKey, base64ToBytes(vault.ciphertext));
-                const jwk = JSON.parse(new TextDecoder().decode(plaintext));
-                return crypto.subtle.importKey("jwk", jwk, {
-                    name: "RSA-OAEP",
-                    hash: "SHA-256"
-                }, false, ["decrypt"]);
+                jwk = JSON.parse(new TextDecoder().decode(plaintext));
             } catch {
                 throw new Error("Couldn't unlock your private key. Check your password or import the right backup.");
             }
+            if (jwk.kty !== "RSA" || jwk.n !== publicKey?.n || jwk.e !== publicKey?.e) {
+                throw new Error("This backup contains a different private key than the one registered for this account.");
+            }
+            return crypto.subtle.importKey("jwk", jwk, {
+                name: "RSA-OAEP",
+                hash: "SHA-256"
+            }, false, ["decrypt"]);
         }
         async function generateIdentity() {
             const pair = await crypto.subtle.generateKey({
@@ -2016,6 +2038,7 @@
                         })
                     });
                     state.token = result.token;
+                    const publicKey = result.public_key || (await api("/me")).user.public_key;
                     const localVault = localStorage.getItem(vaultKey(result.user_id));
                     const imported = sessionStorage.getItem(`commonroom-import-${result.user_id}`);
                     let remoteBackup = null;
@@ -2031,7 +2054,7 @@
                     for (const candidate of candidates) {
                         try {
                             vaultToSync = JSON.parse(candidate);
-                            state.privateKey = await unlockVault(vaultToSync, password, result.user_id);
+                            state.privateKey = await unlockVault(vaultToSync, password, result.user_id, publicKey);
                             break;
                         } catch (error) {
                             unlockError = error;
@@ -2195,7 +2218,7 @@
       }
     }
     async function openConversation(conversation) {
-    state.activeConversation = conversation; state.lastMessageId = "0"; state.showEncrypted = false; renderConversationList(); renderChatHeader();
+    state.messageViewVersion += 1; state.activeConversation = conversation; state.lastMessageId = "0"; state.lastDeletionId = "0"; state.showEncrypted = false; renderConversationList(); renderChatHeader();
       $("#messages").replaceChildren(); $("#composerWrap").classList.remove("hidden");
       await loadMessages(true); $("#messageInput").focus();
     }
@@ -2221,26 +2244,58 @@
     function timeLabel(value) { const date = new Date(`${value.replace(" ", "T")}Z`); return Number.isNaN(date.getTime()) ? "just now" : date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
     async function loadMessages(scrollToBottom) {
       const conversation = state.activeConversation; if (!conversation) return;
+      const viewVersion = state.messageViewVersion;
+      if (state.messageLoads.has(viewVersion)) return;
+      state.messageLoads.add(viewVersion);
       try {
         const response = await api(`/conversations/${conversation.id}/messages?after=${encodeURIComponent(state.lastMessageId)}`);
+        if (state.messageViewVersion !== viewVersion || state.activeConversation?.id !== conversation.id) return;
         const host = $("#messages");
         for (const message of response.messages) {
-          state.lastMessageId = String(message.id);
           let decrypted;
-          try { decrypted = await decryptMessage(message); } catch { appendMessage(message, null); continue; }
+          try { decrypted = await decryptMessage(message); } catch {
+            if (state.messageViewVersion !== viewVersion || state.activeConversation?.id !== conversation.id) return;
+            state.lastMessageId = String(message.id);
+            appendMessage(message, null);
+            continue;
+          }
+          if (state.messageViewVersion !== viewVersion || state.activeConversation?.id !== conversation.id) return;
+          state.lastMessageId = String(message.id);
           appendMessage(message, decrypted);
+        }
+        const deletionResponse = await api(`/conversations/${conversation.id}/message-deletions?after=${encodeURIComponent(state.lastDeletionId)}`);
+        if (state.messageViewVersion !== viewVersion || state.activeConversation?.id !== conversation.id) return;
+        for (const deletion of deletionResponse.deletions) {
+          removeRenderedMessage(deletion.message_id);
+          state.lastDeletionId = String(deletion.id);
         }
         if (scrollToBottom && response.messages.length) host.scrollTop = host.scrollHeight;
         else if (response.messages.length) host.scrollTop = host.scrollHeight;
-      } catch (error) { if (scrollToBottom) toast(error.message); }
+      } catch (error) {
+        if (scrollToBottom && state.messageViewVersion === viewVersion && state.activeConversation?.id === conversation.id) {
+          toast(error.message);
+        }
+      }
+      finally { state.messageLoads.delete(viewVersion); }
     }
     function appendMessage(message, plaintext) {
       const host = $("#messages");
       const welcome = host.querySelector(".welcome"); if (welcome) welcome.remove();
       const article = document.createElement("article"); article.className = `message${message.sender_id === state.user.id ? " mine" : ""}${state.showEncrypted ? " show-encrypted" : ""}`;
+      article.dataset.messageId = String(message.id);
       const meta = document.createElement("div"); meta.className = "message-meta";
       const sender = document.createElement("span"); sender.textContent = message.sender_id === state.user.id ? "You" : message.sender_name;
-      const time = document.createElement("span"); time.textContent = timeLabel(message.created_at); meta.append(sender, time); article.append(meta);
+      const time = document.createElement("span"); time.textContent = timeLabel(message.created_at); meta.append(sender, time);
+      if (message.sender_id === state.user.id) {
+        const deleteButton = document.createElement("button");
+        deleteButton.className = "message-delete";
+        deleteButton.type = "button";
+        deleteButton.textContent = "Delete";
+        deleteButton.setAttribute("aria-label", "Delete this message for everyone");
+        deleteButton.addEventListener("click", () => deleteMessage(message, deleteButton));
+        meta.append(deleteButton);
+      }
+      article.append(meta);
       const bubble = document.createElement("div"); bubble.className = "bubble";
       if (!plaintext) { bubble.textContent = "Couldn't decrypt this message on this device."; bubble.classList.add("message-error"); }
       else if (message.kind === "image") {
@@ -2261,6 +2316,26 @@
         created_at: message.created_at
       }, null, 2);
       article.append(bubble, encrypted); host.append(article);
+    }
+    function removeRenderedMessage(messageId) {
+      const article = [...$("#messages").querySelectorAll(".message")]
+        .find((item) => item.dataset.messageId === String(messageId));
+      if (!article) return;
+      for (const image of article.querySelectorAll("img")) {
+        if (state.objectUrls.delete(image.src)) URL.revokeObjectURL(image.src);
+      }
+      article.remove();
+    }
+    async function deleteMessage(message, button) {
+      if (!window.confirm("Delete this message for everyone in the conversation?")) return;
+      button.disabled = true;
+      try {
+        await api(`/conversations/${state.activeConversation.id}/messages/${encodeURIComponent(message.id)}`, { method: "DELETE" });
+        removeRenderedMessage(message.id);
+      } catch (error) {
+        toast(error.message);
+        button.disabled = false;
+      }
     }
     async function sendPayload(bytes, kind, attachmentName) {
       const conversation = state.activeConversation; if (!conversation || state.loading) return;
