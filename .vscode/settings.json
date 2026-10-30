@@ -14,5 +14,6 @@
   "liveServer.settings.port": 5502,
   "git.enableSmartCommit": true,
   "git.confirmSync": false,
-  "git.autofetch": true
+  "git.autofetch": true,
+  "python.terminal.useEnvFile": true
 }

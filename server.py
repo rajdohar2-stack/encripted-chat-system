@@ -1381,7 +1381,26 @@ def get_messages(conversation_id: int):
     with connect_db() as db:
         if not conversation_for_user(db, conversation_id, user["id"]):
             return jsonify(error="Chat not found."), 404
-    return jsonify(messages=read_stored_messages(conversation_id, after_id))
+    stored_messages = read_stored_messages(conversation_id, after_id)
+    messages = [
+        message
+        for message in stored_messages
+        if str(message.get("conversation_id")) == str(conversation_id)
+        and isinstance(message.get("envelopes"), dict)
+        and user["id"] in message["envelopes"]
+    ]
+    skipped_count = len(stored_messages) - len(messages)
+    if skipped_count:
+        print(
+            f"WARNING: Skipped {skipped_count} message record(s) that did not match "
+            f"conversation {conversation_id} or recipient {user['id']}.",
+            flush=True,
+        )
+    return jsonify(
+        messages=messages,
+        skipped_messages=skipped_count,
+        next_after=str(stored_messages[-1]["id"]) if stored_messages else after_id,
+    )
 
 
 @app.get("/api/conversations/<int:conversation_id>/message-deletions")
