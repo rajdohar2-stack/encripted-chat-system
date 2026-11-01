@@ -946,18 +946,27 @@
         }
 
         .message-delete {
-            border: 0;
-            padding: 0;
-            background: transparent;
+            border: 1px solid #dce4d9;
+            border-radius: 6px;
+            padding: 4px 8px;
+            background: #fffefa;
             color: #a44e37;
             cursor: pointer;
-            font: inherit;
-            text-decoration: underline;
+            font: 600 10px "DM Sans", sans-serif;
         }
 
         .message-delete:disabled {
             cursor: wait;
             opacity: .6;
+        }
+
+        .message-actions {
+            display: flex;
+            margin-top: 5px;
+        }
+
+        .message.mine .message-actions {
+            justify-content: flex-end;
         }
         
         .bubble {
@@ -2353,16 +2362,18 @@
       const meta = document.createElement("div"); meta.className = "message-meta";
       const sender = document.createElement("span"); sender.textContent = message.sender_id === state.user.id ? "You" : message.sender_name;
       const time = document.createElement("span"); time.textContent = timeLabel(message.created_at); meta.append(sender, time);
-      if (message.sender_id === state.user.id) {
+      let actions = null;
+      if (message.sender_id === state.user.id || state.activeConversation.can_delete_peer_messages) {
         const deleteButton = document.createElement("button");
         deleteButton.className = "message-delete";
         deleteButton.type = "button";
         deleteButton.textContent = "Delete";
         deleteButton.setAttribute("aria-label", "Delete this message for everyone");
         deleteButton.addEventListener("click", () => deleteMessage(message, deleteButton));
-        meta.append(deleteButton);
+        actions = document.createElement("div");
+        actions.className = "message-actions";
+        actions.append(deleteButton);
       }
-      article.append(meta);
       const bubble = document.createElement("div"); bubble.className = "bubble";
       if (!plaintext) { bubble.textContent = "Couldn't decrypt this message on this device."; bubble.classList.add("message-error"); }
       else if (message.kind === "image") {
@@ -2382,7 +2393,11 @@
         attachment_name: message.attachment_name,
         created_at: message.created_at
       }, null, 2);
-      article.append(bubble, encrypted); host.append(article);
+      const content = document.createElement("div");
+      content.className = "message-content";
+      content.append(bubble);
+      if (actions) content.append(actions);
+      article.append(content, encrypted); host.append(article);
     }
     function removeRenderedMessage(messageId) {
       const article = [...$("#messages").querySelectorAll(".message")]

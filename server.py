@@ -1132,6 +1132,15 @@ def conversation_summary(db: sqlite3.Connection, conversation: sqlite3.Row, view
     return {
         "id": conversation["id"],
         "title": title or "Saved messages",
+        "can_delete_peer_messages": (
+            len(members) == 2
+            and (
+                not conversation["title"]
+                or not conversation["title"].strip()
+                or conversation["title"].strip().casefold()
+                in {"none", "null", "undefined"}
+            )
+        ),
         "members": [user_payload(member) for member in members],
         "last_message": last_message,
     }
@@ -1470,16 +1479,41 @@ def delete_message(conversation_id: int, message_id: str):
         return jsonify(error="Message not found."), 404
 
     with connect_db() as db:
-        if not conversation_for_user(db, conversation_id, user["id"]):
+        member_ids = {
+            row["user_id"]
+            for row in db.execute(
+                "SELECT user_id FROM members WHERE conversation_id = ?",
+                (conversation_id,),
+            ).fetchall()
+        }
+        if user["id"] not in member_ids:
             return jsonify(error="Chat not found."), 404
+        conversation = db.execute(
+            "SELECT title FROM conversations WHERE id = ?",
+            (conversation_id,),
+        ).fetchone()
+        title = conversation["title"] if conversation else None
+        can_delete_other_messages = (
+            len(member_ids) == 2
+            and (
+                not title
+                or not title.strip()
+                or title.strip().casefold() in {"none", "null", "undefined"}
+            )
+        )
 
     if FIREBASE_MESSAGES:
         message_path = f"conversations/{conversation_id}/messages/{message_id}"
         message = FIREBASE_MESSAGES.reference(message_path).get()
         if not isinstance(message, dict):
             return jsonify(error="Message not found."), 404
-        if message.get("sender_id") != user["id"]:
-            return jsonify(error="You can only delete messages you sent."), 403
+        if (
+            str(message.get("conversation_id")) != str(conversation_id)
+            or message.get("sender_id") not in member_ids
+        ):
+            return jsonify(error="Message not found."), 404
+        if message.get("sender_id") != user["id"] and not can_delete_other_messages:
+            return jsonify(error="In group chats, you can only delete messages you sent."), 403
         deletion_ref = FIREBASE_MESSAGES.reference(
             f"conversations/{conversation_id}/deletions"
         ).push()
@@ -1503,8 +1537,10 @@ def delete_message(conversation_id: int, message_id: str):
             ).fetchone()
             if message is None:
                 return jsonify(error="Message not found."), 404
-            if message["sender_id"] != user["id"]:
-                return jsonify(error="You can only delete messages you sent."), 403
+            if message["sender_id"] not in member_ids:
+                return jsonify(error="Message not found."), 404
+            if message["sender_id"] != user["id"] and not can_delete_other_messages:
+                return jsonify(error="In group chats, you can only delete messages you sent."), 403
             message_db.execute(
                 "INSERT INTO message_deletions (conversation_id, message_id, deleted_by) "
                 "VALUES (?, ?, ?)",

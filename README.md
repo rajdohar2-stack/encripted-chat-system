@@ -43,7 +43,7 @@ Open the GitHub Pages frontend and sign in with the same account to see its conv
 
 If the page says it cannot reach the hosted API, Render may be starting after a period of inactivity. Wait briefly, then retry. Check the [API health endpoint](https://encripted-chat-system.onrender.com/api/health); it should return `ok: true` and `message_store: "firebase"`. If the health endpoint does not respond, the hosted service needs attention before the chat page can load or send messages.
 
-To delete one of your messages, select **Delete** beside it and confirm. The message is removed for everyone in that conversation; you can only delete messages you sent.
+The **Delete** button is shown below each message. In a one-to-one chat, either participant can delete either person's message for everyone; in a group chat, you can delete only your own messages. Confirm the deletion when prompted.
 
 ---
 
@@ -116,7 +116,7 @@ python server.py
 ## Using the Chat & Managing Private Keys
 
 * **Registration & Login**: Create an account with a username and password (minimum 10 characters). Share your 8-character chat ID to let others send you a conversation request. After signing in on a new browser, the encrypted key backup is downloaded and unlocked locally with your password.
-* **Delete a message**: Use **Delete** beside one of your sent messages and confirm to remove it for everyone in that conversation. Other open clients receive the deletion automatically.
+* **Delete a message**: Use **Delete** below a message and confirm to remove it for everyone in the conversation. Either participant can delete messages in a one-to-one chat; group members can delete only their own. Other open clients receive the deletion automatically.
 * **New Devices & Incognito Tabs (Key Backup)**:
   * Accounts created with the current version automatically store a password-encrypted private-key backup with the account. You can sign in on another browser and unlock it with the same password.
   * Existing accounts need to sign in once from a browser that already has their key; that login uploads the encrypted backup. If the key exists only in an export file, import it and sign in to upload it.
