@@ -1122,7 +1122,9 @@ def conversation_summary(db: sqlite3.Connection, conversation: sqlite3.Row, view
         "ORDER BY users.username COLLATE NOCASE",
         (conversation["id"],),
     ).fetchall()
-    last_message = latest_message(db, conversation["id"])
+    last_message = latest_message(
+        db, conversation["id"], {member["id"] for member in members}
+    )
     others = [member for member in members if member["id"] != viewer_id]
     title = conversation["title"]
     if not title or title.strip().casefold() in {"none", "null", "undefined"}:
@@ -1135,23 +1137,62 @@ def conversation_summary(db: sqlite3.Connection, conversation: sqlite3.Row, view
     }
 
 
-def latest_message(db: sqlite3.Connection, conversation_id: int) -> dict[str, Any] | None:
+def latest_message(
+    db: sqlite3.Connection, conversation_id: int, member_ids: set[str] | None = None
+) -> dict[str, Any] | None:
+    if member_ids is None:
+        member_ids = {
+            row["user_id"]
+            for row in db.execute(
+                "SELECT user_id FROM members WHERE conversation_id = ?",
+                (conversation_id,),
+            ).fetchall()
+        }
     if FIREBASE_MESSAGES:
         records = FIREBASE_MESSAGES.reference(
             f"conversations/{conversation_id}/messages"
-        ).order_by_key().limit_to_last(1).get()
+        ).order_by_key().limit_to_last(100).get()
         if not records:
             return None
-        message_id, message = next(iter(records.items()))
-        return {"id": message_id, "kind": message["kind"], "sender_id": message["sender_id"],
-                "created_at": message["created_at"]}
+        for message_id, message in reversed(sorted(records.items())):
+            item = {"id": message_id, **message}
+            if message_matches_conversation(item, conversation_id, member_ids):
+                return {
+                    "id": message_id,
+                    "kind": message["kind"],
+                    "sender_id": message["sender_id"],
+                    "created_at": message["created_at"],
+                }
+        return None
     with connect_db(MESSAGES_DATABASE) as message_db:
-        row = message_db.execute(
-        "SELECT id, kind, sender_id, created_at FROM messages "
-        "WHERE conversation_id = ? ORDER BY id DESC LIMIT 1",
-        (conversation_id,),
-        ).fetchone()
-    return dict(row) if row else None
+        rows = message_db.execute(
+            "SELECT * FROM messages WHERE conversation_id = ? "
+            "ORDER BY id DESC LIMIT 100",
+            (conversation_id,),
+        ).fetchall()
+    for row in rows:
+        item = dict(row)
+        item["envelopes"] = json.loads(item["envelopes"])
+        if message_matches_conversation(item, conversation_id, member_ids):
+            return {
+                "id": item["id"],
+                "kind": item["kind"],
+                "sender_id": item["sender_id"],
+                "created_at": item["created_at"],
+            }
+    return None
+
+
+def message_matches_conversation(
+    message: dict[str, Any], conversation_id: int, member_ids: set[str]
+) -> bool:
+    envelopes = message.get("envelopes")
+    return (
+        str(message.get("conversation_id")) == str(conversation_id)
+        and message.get("sender_id") in member_ids
+        and isinstance(envelopes, dict)
+        and set(envelopes) == member_ids
+    )
 
 
 def read_stored_messages(conversation_id: int, after_id: str) -> list[dict[str, Any]]:
@@ -1379,15 +1420,20 @@ def get_messages(conversation_id: int):
         return jsonify(error="Sign in to continue."), 401
     after_id = request.args.get("after", default="0", type=str)
     with connect_db() as db:
-        if not conversation_for_user(db, conversation_id, user["id"]):
+        member_ids = {
+            row["user_id"]
+            for row in db.execute(
+                "SELECT user_id FROM members WHERE conversation_id = ?",
+                (conversation_id,),
+            ).fetchall()
+        }
+        if user["id"] not in member_ids:
             return jsonify(error="Chat not found."), 404
     stored_messages = read_stored_messages(conversation_id, after_id)
     messages = [
         message
         for message in stored_messages
-        if str(message.get("conversation_id")) == str(conversation_id)
-        and isinstance(message.get("envelopes"), dict)
-        and user["id"] in message["envelopes"]
+        if message_matches_conversation(message, conversation_id, member_ids)
     ]
     skipped_count = len(stored_messages) - len(messages)
     if skipped_count:
