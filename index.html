@@ -1680,6 +1680,7 @@
             objectUrls: new Set(),
             poll: null,
             loading: false,
+            conversationLoadWarningShown: false,
             requests: { incoming: [], sent: [] },
             notifTab: "incoming",
             incomingCount: 0
@@ -1855,7 +1856,7 @@
                 if (window.COMMONROOM_API_IS_LOCAL) {
                     throw new Error("Can't reach the local API at https://" + window.location.hostname + ":5000. Start the 'Run encrypted chat API' task and trust %USERPROFILE%\\.commonroom\\lan-root-ca.crt in Windows' Current User > Trusted Root Certification Authorities store, then reload.");
                 }
-                throw new Error("Can't reach the hosted chat API. Check your internet connection or try again in a moment.");
+                throw new Error("Can't reach the hosted chat API. It may be waking up; wait a moment and try again. Check https://encripted-chat-system.onrender.com/api/health to see whether it is online.");
             }
             const payload = await response.json().catch(() => ({}));
             if (!response.ok) {
@@ -2143,6 +2144,7 @@
                 });
             } catch {}
             stopApp();
+            clearAccountView();
             localStorage.removeItem("commonroom-token");
             state.token = null;
             state.user = null;
@@ -2158,8 +2160,44 @@
             state.objectUrls.forEach(URL.revokeObjectURL);
             state.objectUrls.clear();
         }
+        function clearAccountView() {
+            state.conversations = [];
+            state.activeConversation = null;
+            state.lastMessageId = "0";
+            state.lastDeletionId = "0";
+            state.messageViewVersion += 1;
+            state.messageLoads.clear();
+            state.conversationLoadWarningShown = false;
+            state.requests = { incoming: [], sent: [] };
+            state.incomingCount = 0;
+            renderConversationList();
+            renderNotifications();
+            $("#chatHeader").replaceChildren();
+            $("#chatHeader").classList.add("hidden");
+            $("#composerWrap").classList.add("hidden");
+
+            const welcome = document.createElement("div");
+            welcome.className = "welcome";
+            const mark = document.createElement("div");
+            mark.className = "welcome-mark";
+            mark.textContent = "c.";
+            const heading = document.createElement("h2");
+            heading.textContent = "Make room for your people.";
+            const description = document.createElement("p");
+            description.textContent = "Start a conversation with a chat ID. Your messages and pictures are encrypted before sending.";
+            const startButton = document.createElement("button");
+            startButton.id = "welcomeNewChat";
+            startButton.className = "primary";
+            startButton.type = "button";
+            startButton.style.cssText = "width:auto;padding:11px 15px";
+            startButton.textContent = "Start a conversation";
+            startButton.addEventListener("click", openNewChat);
+            welcome.append(mark, heading, description, startButton);
+            $("#messages").replaceChildren(welcome);
+        }
         async function enterApp() {
             const response = await api("/me");
+            clearAccountView();
             state.user = response.user;
             $("#authView").classList.add("hidden");
             $("#appView").classList.remove("hidden");
@@ -2179,6 +2217,7 @@
             try {
                 const response = await api("/conversations");
                 state.conversations = response.conversations;
+                state.conversationLoadWarningShown = false;
                 renderConversationList();
                 if (state.activeConversation) {
                     const current = state.conversations.find((item) => item.id === state.activeConversation.id);
@@ -2190,10 +2229,19 @@
             } catch (error) {
                 if (error.message.includes("Sign in")) {
                     stopApp();
+                    clearAccountView();
                     localStorage.removeItem("commonroom-token");
                     $("#appView").classList.add("hidden");
                     $("#authView").classList.remove("hidden");
+                    state.user = null;
+                    state.privateKey = null;
                     showError("Your session ended. Please sign in again.");
+                } else {
+                    console.warn("Conversation refresh failed:", error);
+                    if (!state.conversationLoadWarningShown) {
+                        state.conversationLoadWarningShown = true;
+                        toast(`Couldn't refresh your conversations: ${error.message}`);
+                    }
                 }
             }
         }

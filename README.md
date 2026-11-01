@@ -39,6 +39,12 @@ Keep both tasks and this PC online while using the link. Stop the tunnel task wi
 
 ## Use the GitHub Pages site from anywhere
 
+Open the GitHub Pages frontend and sign in with the same account to see its conversations after closing the browser or signing in from another device. Messages and account/conversation data are stored by the hosted API in Firebase; each signed-in account only receives conversations where it is a member. Signing out clears the conversation view before another account can be shown.
+
+If the page says it cannot reach the hosted API, Render may be starting after a period of inactivity. Wait briefly, then retry. Check the [API health endpoint](https://encripted-chat-system.onrender.com/api/health); it should return `ok: true` and `message_store: "firebase"`. If the health endpoint does not respond, the hosted service needs attention before the chat page can load or send messages.
+
+To delete one of your messages, select **Delete** beside it and confirm. The message is removed for everyone in that conversation; you can only delete messages you sent.
+
 ---
 
 ## How It Works (Cryptographic Architecture)
