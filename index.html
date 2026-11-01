@@ -2300,10 +2300,15 @@
         const response = await api(`/conversations/${conversation.id}/messages?after=${encodeURIComponent(state.lastMessageId)}`);
         if (state.messageViewVersion !== viewVersion || state.activeConversation?.id !== conversation.id) return;
         const host = $("#messages");
+        const memberIds = new Set(conversation.members.map((member) => member.id));
         let skippedCount = Number(response.skipped_messages) || 0;
         for (const message of response.messages) {
           if (String(message.conversation_id) !== String(conversation.id) ||
-              !message.envelopes || !Object.hasOwn(message.envelopes, state.user.id)) {
+              !memberIds.has(message.sender_id) ||
+              !message.envelopes ||
+              Object.keys(message.envelopes).length !== memberIds.size ||
+              Object.keys(message.envelopes).some((memberId) => !memberIds.has(memberId)) ||
+              !Object.hasOwn(message.envelopes, state.user.id)) {
             skippedCount += 1;
             state.lastMessageId = String(message.id);
             continue;
