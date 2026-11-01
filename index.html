@@ -807,7 +807,7 @@
             min-width: 0;
             min-height: 600px;
             display: grid;
-            grid-template-rows: auto 1fr auto;
+            grid-template-rows: auto auto minmax(0, 1fr) auto;
         }
         
         .chat-head {
@@ -945,28 +945,53 @@
             margin-right: 3px;
         }
 
-        .message-delete {
-            border: 1px solid #dce4d9;
-            border-radius: 6px;
-            padding: 4px 8px;
-            background: #fffefa;
-            color: #a44e37;
+        .message[role="checkbox"] {
             cursor: pointer;
-            font: 600 10px "DM Sans", sans-serif;
         }
 
-        .message-delete:disabled {
+        .message[role="checkbox"]:focus-visible .bubble,
+        .message.selected .bubble,
+        .message.selected .encrypted-payload {
+            outline: 2px solid var(--green-deep);
+            outline-offset: 2px;
+        }
+
+        .selection-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 9px 16px;
+            border-bottom: 1px solid var(--line);
+            background: var(--surface);
+        }
+
+        .selection-toolbar span {
+            margin-right: auto;
+            color: var(--ink-soft);
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .selection-toolbar button {
+            min-height: 34px;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            padding: 6px 10px;
+            background: var(--surface);
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .selection-toolbar .selection-delete {
+            border-color: #a44e37;
+            background: #a44e37;
+            color: white;
+        }
+
+        .selection-toolbar button:disabled {
             cursor: wait;
             opacity: .6;
-        }
-
-        .message-actions {
-            display: flex;
-            margin-top: 5px;
-        }
-
-        .message.mine .message-actions {
-            justify-content: flex-end;
         }
         
         .bubble {
@@ -1466,7 +1491,7 @@
             }
             .chat {
                 min-height: 100dvh;
-                grid-template-rows: auto 1fr auto;
+                grid-template-rows: auto auto minmax(0, 1fr) auto;
             }
             .chat-head {
                 min-height: 67px;
@@ -1647,6 +1672,11 @@
             </aside>
             <section class="chat" aria-label="Chat">
                 <header id="chatHeader" class="chat-head hidden"></header>
+                <div id="selectionToolbar" class="selection-toolbar hidden" role="toolbar" aria-label="Selected messages">
+                    <span id="selectionCount">0 selected</span>
+                    <button id="cancelSelectionButton" type="button">Cancel</button>
+                    <button id="deleteSelectedButton" class="selection-delete" type="button">Delete</button>
+                </div>
                 <div id="messages" class="messages">
                     <div class="welcome">
                         <div class="welcome-mark">c.</div>
@@ -1687,6 +1717,8 @@
             warnedMessageScopes: new Set(),
             showEncrypted: false,
             objectUrls: new Set(),
+            selectedMessageIds: new Set(),
+            deletingSelectedMessages: false,
             poll: null,
             loading: false,
             conversationLoadWarningShown: false,
@@ -2172,6 +2204,8 @@
         function clearAccountView() {
             state.conversations = [];
             state.activeConversation = null;
+            state.selectedMessageIds.clear();
+            state.deletingSelectedMessages = false;
             state.lastMessageId = "0";
             state.lastDeletionId = "0";
             state.messageViewVersion += 1;
@@ -2183,6 +2217,7 @@
             renderNotifications();
             $("#chatHeader").replaceChildren();
             $("#chatHeader").classList.add("hidden");
+            updateMessageSelectionToolbar();
             $("#composerWrap").classList.add("hidden");
 
             const welcome = document.createElement("div");
@@ -2276,7 +2311,7 @@
       }
     }
     async function openConversation(conversation) {
-    state.messageViewVersion += 1; state.activeConversation = conversation; state.lastMessageId = "0"; state.lastDeletionId = "0"; state.showEncrypted = false; renderConversationList(); renderChatHeader();
+    state.messageViewVersion += 1; state.activeConversation = conversation; state.selectedMessageIds.clear(); state.lastMessageId = "0"; state.lastDeletionId = "0"; state.showEncrypted = false; updateMessageSelectionToolbar(); renderConversationList(); renderChatHeader();
       $("#messages").replaceChildren(); $("#composerWrap").classList.remove("hidden");
       await loadMessages(true); $("#messageInput").focus();
     }
@@ -2359,21 +2394,25 @@
       const welcome = host.querySelector(".welcome"); if (welcome) welcome.remove();
       const article = document.createElement("article"); article.className = `message${message.sender_id === state.user.id ? " mine" : ""}${state.showEncrypted ? " show-encrypted" : ""}`;
       article.dataset.messageId = String(message.id);
+      article.dataset.senderId = message.sender_id;
+      const canSelectForDeletion = message.sender_id === state.user.id ||
+        state.activeConversation.can_delete_peer_messages === true;
+      if (canSelectForDeletion) {
+        article.tabIndex = 0;
+        article.setAttribute("role", "checkbox");
+        article.setAttribute("aria-checked", "false");
+        article.setAttribute("aria-label", `Select message from ${message.sender_id === state.user.id ? "you" : message.sender_name}`);
+        article.addEventListener("click", () => toggleMessageSelection(message.id));
+        article.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            toggleMessageSelection(message.id);
+          }
+        });
+      }
       const meta = document.createElement("div"); meta.className = "message-meta";
       const sender = document.createElement("span"); sender.textContent = message.sender_id === state.user.id ? "You" : message.sender_name;
       const time = document.createElement("span"); time.textContent = timeLabel(message.created_at); meta.append(sender, time);
-      let actions = null;
-      if (message.sender_id === state.user.id || state.activeConversation.can_delete_peer_messages) {
-        const deleteButton = document.createElement("button");
-        deleteButton.className = "message-delete";
-        deleteButton.type = "button";
-        deleteButton.textContent = "Delete";
-        deleteButton.setAttribute("aria-label", "Delete this message for everyone");
-        deleteButton.addEventListener("click", () => deleteMessage(message, deleteButton));
-        actions = document.createElement("div");
-        actions.className = "message-actions";
-        actions.append(deleteButton);
-      }
       const bubble = document.createElement("div"); bubble.className = "bubble";
       if (!plaintext) { bubble.textContent = "Couldn't decrypt this message on this device."; bubble.classList.add("message-error"); }
       else if (message.kind === "image") {
@@ -2396,7 +2435,6 @@
       const content = document.createElement("div");
       content.className = "message-content";
       content.append(bubble);
-      if (actions) content.append(actions);
       article.append(content, encrypted); host.append(article);
     }
     function removeRenderedMessage(messageId) {
@@ -2407,18 +2445,74 @@
         if (state.objectUrls.delete(image.src)) URL.revokeObjectURL(image.src);
       }
       article.remove();
+      state.selectedMessageIds.delete(String(messageId));
+      updateMessageSelectionToolbar();
     }
-    async function deleteMessage(message, button) {
-      if (!window.confirm("Delete this message for everyone in the conversation?")) return;
-      button.disabled = true;
-      try {
-        await api(`/conversations/${state.activeConversation.id}/messages/${encodeURIComponent(message.id)}`, { method: "DELETE" });
-        removeRenderedMessage(message.id);
-      } catch (error) {
-        toast(error.message);
-        button.disabled = false;
+    function toggleMessageSelection(messageId) {
+      if (state.deletingSelectedMessages) return;
+      const id = String(messageId);
+      if (state.selectedMessageIds.has(id)) {
+        state.selectedMessageIds.delete(id);
+      } else {
+        state.selectedMessageIds.add(id);
+      }
+      const article = [...$("#messages").querySelectorAll(".message")]
+        .find((item) => item.dataset.messageId === id);
+      if (article) {
+        const selected = state.selectedMessageIds.has(id);
+        article.classList.toggle("selected", selected);
+        article.setAttribute("aria-checked", String(selected));
+      }
+      updateMessageSelectionToolbar();
+    }
+    function updateMessageSelectionToolbar() {
+      const toolbar = $("#selectionToolbar");
+      if (!toolbar) return;
+      const count = state.selectedMessageIds.size;
+      toolbar.classList.toggle("hidden", count === 0 || !state.activeConversation);
+      $("#selectionCount").textContent = `${count} selected`;
+      $("#cancelSelectionButton").disabled = state.deletingSelectedMessages;
+      $("#deleteSelectedButton").disabled = state.deletingSelectedMessages || count === 0;
+    }
+    function clearMessageSelection() {
+      state.selectedMessageIds.clear();
+      document.querySelectorAll("#messages .message.selected").forEach((article) => {
+        article.classList.remove("selected");
+        article.setAttribute("aria-checked", "false");
+      });
+      updateMessageSelectionToolbar();
+    }
+    async function deleteSelectedMessages() {
+      const conversation = state.activeConversation;
+      const selectedIds = [...state.selectedMessageIds];
+      if (!conversation || !selectedIds.length || state.deletingSelectedMessages) return;
+      if (!window.confirm(`Delete ${selectedIds.length} selected message${selectedIds.length === 1 ? "" : "s"} for everyone?`)) return;
+
+      state.deletingSelectedMessages = true;
+      updateMessageSelectionToolbar();
+      const results = await Promise.allSettled(selectedIds.map((id) =>
+        api(`/conversations/${conversation.id}/messages/${encodeURIComponent(id)}`, { method: "DELETE" })
+      ));
+      let failedCount = 0;
+      results.forEach((result, index) => {
+        if (result.status === "fulfilled") {
+          removeRenderedMessage(selectedIds[index]);
+        } else {
+          failedCount += 1;
+          console.error(`Couldn't delete message ${selectedIds[index]}:`, result.reason);
+        }
+      });
+      state.deletingSelectedMessages = false;
+      if (failedCount === 0) {
+        clearMessageSelection();
+        toast(`${selectedIds.length} message${selectedIds.length === 1 ? "" : "s"} deleted.`);
+      } else {
+        updateMessageSelectionToolbar();
+        toast(`${selectedIds.length - failedCount} deleted; ${failedCount} couldn't be deleted. Try again.`);
       }
     }
+    $("#cancelSelectionButton").addEventListener("click", clearMessageSelection);
+    $("#deleteSelectedButton").addEventListener("click", deleteSelectedMessages);
     async function sendPayload(bytes, kind, attachmentName) {
       const conversation = state.activeConversation; if (!conversation || state.loading) return;
       state.loading = true; $("#sendButton").disabled = true;
