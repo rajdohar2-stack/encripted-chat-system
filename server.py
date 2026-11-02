@@ -295,6 +295,7 @@ def initialize_messages_db() -> None:
                 envelopes TEXT NOT NULL,
                 kind TEXT NOT NULL CHECK (kind IN ('text', 'image')),
                 attachment_name TEXT,
+                attachment_type TEXT,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
             CREATE INDEX IF NOT EXISTS messages_conversation_id_id
@@ -311,6 +312,11 @@ def initialize_messages_db() -> None:
                 ON message_deletions(conversation_id, id);
             """
         )
+        message_columns = {
+            row["name"] for row in db.execute("PRAGMA table_info(messages)").fetchall()
+        }
+        if "attachment_type" not in message_columns:
+            db.execute("ALTER TABLE messages ADD COLUMN attachment_type TEXT")
 
     with connect_db() as account_db:
         existing_table = account_db.execute(
@@ -1261,6 +1267,7 @@ def read_message_deletions(conversation_id: int, after_id: str) -> list[dict[str
 
 def save_stored_message(conversation_id: int, user: sqlite3.Row, data: dict[str, Any]) -> dict[str, Any]:
     attachment_name = str(data.get("attachment_name") or "")[:120] if data["kind"] == "image" else None
+    attachment_type = str(data.get("attachment_type") or "")[:100] if data["kind"] == "image" else None
     if FIREBASE_MESSAGES:
         message = {
             "conversation_id": conversation_id,
@@ -1271,6 +1278,7 @@ def save_stored_message(conversation_id: int, user: sqlite3.Row, data: dict[str,
             "envelopes": data["envelopes"],
             "kind": data["kind"],
             "attachment_name": attachment_name,
+            "attachment_type": attachment_type,
             "created_at": datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
         }
         message_ref = FIREBASE_MESSAGES.reference(
@@ -1282,10 +1290,10 @@ def save_stored_message(conversation_id: int, user: sqlite3.Row, data: dict[str,
     with connect_db(MESSAGES_DATABASE) as db:
         cursor = db.execute(
             "INSERT INTO messages "
-            "(conversation_id, sender_id, sender_name, ciphertext, iv, envelopes, kind, attachment_name) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "(conversation_id, sender_id, sender_name, ciphertext, iv, envelopes, kind, attachment_name, attachment_type) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (conversation_id, user["id"], user["username"], data["ciphertext"], data["iv"],
-             json.dumps(data["envelopes"]), data["kind"], attachment_name),
+             json.dumps(data["envelopes"]), data["kind"], attachment_name, attachment_type),
         )
         message = db.execute(
             "SELECT messages.* FROM messages WHERE messages.id = ?",
@@ -1619,12 +1627,19 @@ def send_message(conversation_id: int):
     envelopes = data.get("envelopes")
     kind = data.get("kind")
     attachment_name = data.get("attachment_name")
+    attachment_type = data.get("attachment_type")
     if not isinstance(ciphertext, str) or not ciphertext or len(ciphertext) > 11_300_000:
         return jsonify(error="Message is empty or too large (maximum image size is 8 MB)."), 400
     if not isinstance(iv, str) or not isinstance(envelopes, dict) or kind not in ("text", "image"):
         return jsonify(error="Encrypted message is incomplete."), 400
     if len(iv) > 64 or len(envelopes) > 20 or any(not isinstance(value, str) for value in envelopes.values()):
         return jsonify(error="Encrypted message format is invalid."), 400
+    if kind == "image" and attachment_type is not None and (
+        not isinstance(attachment_type, str)
+        or not attachment_type.startswith("image/")
+        or len(attachment_type) > 100
+    ):
+        return jsonify(error="Image type is invalid."), 400
 
     with connect_db() as db:
         member_ids = {
@@ -1644,6 +1659,7 @@ def send_message(conversation_id: int):
         "envelopes": envelopes,
         "kind": kind,
         "attachment_name": attachment_name,
+        "attachment_type": attachment_type,
     })
     return jsonify(message=message), 201
 

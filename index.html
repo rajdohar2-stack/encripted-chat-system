@@ -2428,7 +2428,7 @@
       const bubble = document.createElement("div"); bubble.className = "bubble";
       if (!plaintext) { bubble.textContent = "Couldn't decrypt this message on this device."; bubble.classList.add("message-error"); }
       else if (message.kind === "image") {
-        const blob = new Blob([plaintext]); const url = URL.createObjectURL(blob); state.objectUrls.add(url);
+        const blob = new Blob([plaintext], { type: message.attachment_type || "" }); const url = URL.createObjectURL(blob); state.objectUrls.add(url);
         const image = document.createElement("img"); image.src = url; image.alt = message.attachment_name || "Encrypted image"; image.loading = "lazy"; bubble.append(image);
         if (message.attachment_name) { const name = document.createElement("span"); name.className = "image-name"; name.textContent = message.attachment_name; bubble.append(name); }
       } else bubble.textContent = new TextDecoder().decode(plaintext);
@@ -2442,6 +2442,7 @@
         iv: message.iv,
         envelopes: message.envelopes,
         attachment_name: message.attachment_name,
+        attachment_type: message.attachment_type,
         created_at: message.created_at
       }, null, 2);
       const content = document.createElement("div");
@@ -2528,12 +2529,14 @@
     }
     $("#cancelSelectionButton").addEventListener("click", clearMessageSelection);
     $("#deleteSelectedButton").addEventListener("click", deleteSelectedMessages);
-    async function sendPayload(bytes, kind, attachmentName) {
-      const conversation = state.activeConversation; if (!conversation || state.loading) return;
+    async function sendPayload(bytes, kind, attachmentName, attachmentType = null) {
+      const conversation = state.activeConversation;
+      if (!conversation) return toast("Open a conversation before sending a message.");
+      if (state.loading) return toast("Please wait for the current message to finish sending.");
       state.loading = true; $("#sendButton").disabled = true;
       try {
         const encrypted = await encryptForMembers(bytes, conversation.members);
-        await api(`/conversations/${conversation.id}/messages`, { method: "POST", body: JSON.stringify({ ...encrypted, kind, attachment_name: attachmentName }) });
+        await api(`/conversations/${conversation.id}/messages`, { method: "POST", body: JSON.stringify({ ...encrypted, kind, attachment_name: attachmentName, attachment_type: attachmentType }) });
         await loadMessages(true);
       } catch (error) { toast(error.message); }
       finally { state.loading = false; $("#sendButton").disabled = false; }
@@ -2548,7 +2551,11 @@
       const file = event.target.files[0]; event.target.value = ""; if (!file) return;
       if (!file.type.startsWith("image/")) return toast("Choose an image file to share.");
       if (file.size > 8 * 1024 * 1024) return toast("Images must be 8 MB or smaller.");
-      await sendPayload(new Uint8Array(await file.arrayBuffer()), "image", file.name);
+      try {
+        await sendPayload(new Uint8Array(await file.arrayBuffer()), "image", file.name, file.type);
+      } catch (error) {
+        toast(`Couldn't read that image: ${error.message}`);
+      }
     });
 
     const commonEmojis = [
