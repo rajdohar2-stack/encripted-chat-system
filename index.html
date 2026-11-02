@@ -930,6 +930,18 @@
             font-size: 13px;
             line-height: 1.55;
         }
+
+        .message-load-state {
+            display: flex;
+            flex: 1;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            color: #708078;
+            font-size: 13px;
+            text-align: center;
+        }
         
         .message {
             max-width: min(76%, 520px);
@@ -2447,6 +2459,24 @@
       });
     }
     function timeLabel(value) { const date = new Date(`${value.replace(" ", "T")}Z`); return Number.isNaN(date.getTime()) ? "just now" : date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
+    function renderMessageStatus(text, canRetry) {
+      const host = $("#messages");
+      const status = document.createElement("div");
+      status.className = "message-load-state";
+      status.textContent = text;
+      if (canRetry) {
+        const retry = document.createElement("button");
+        retry.type = "button";
+        retry.className = "quiet-button";
+        retry.textContent = "Retry loading messages";
+        retry.addEventListener("click", () => {
+          state.lastMessageId = "0";
+          loadMessages(true);
+        });
+        status.append(retry);
+      }
+      host.replaceChildren(status);
+    }
     async function loadMessages(scrollToBottom) {
       const conversation = state.activeConversation; if (!conversation) return;
       const viewVersion = state.messageViewVersion;
@@ -2496,10 +2526,21 @@
           removeRenderedMessage(deletion.message_id);
           state.lastDeletionId = String(deletion.id);
         }
+        if (!host.querySelector(".message")) {
+          renderMessageStatus(
+            conversation.last_message
+              ? "Your latest message isn't available yet. Try loading the chat again."
+              : "No messages yet. Send a message to get started.",
+            Boolean(conversation.last_message)
+          );
+        }
         if (scrollToBottom && response.messages.length) host.scrollTop = host.scrollHeight;
         else if (response.messages.length) host.scrollTop = host.scrollHeight;
       } catch (error) {
         if (scrollToBottom && state.messageViewVersion === viewVersion && state.activeConversation?.id === conversation.id) {
+          if (!$("#messages").querySelector(".message")) {
+            renderMessageStatus(`Couldn't load messages: ${error.message}`, true);
+          }
           toast(error.message);
         }
       }
@@ -2508,6 +2549,7 @@
     function appendMessage(message, plaintext) {
       const host = $("#messages");
       if (host.querySelector(`.message[data-message-id="${CSS.escape(String(message.id))}"]`)) return;
+      host.querySelector(".message-load-state")?.remove();
       const welcome = host.querySelector(".welcome"); if (welcome) welcome.remove();
       const article = document.createElement("article"); article.className = `message${message.sender_id === state.user.id ? " mine" : ""}${state.showEncrypted ? " show-encrypted" : ""}`;
       article.dataset.messageId = String(message.id);

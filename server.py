@@ -1364,9 +1364,11 @@ def read_stored_messages(conversation_id: int, after_id: str) -> list[dict[str, 
     if FIREBASE_MESSAGES:
         message_query = FIREBASE_MESSAGES.reference(
             f"conversations/{conversation_id}/messages"
-        ).order_by_key().limit_to_first(100)
+        ).order_by_key()
         if after_id and after_id != "0":
-            message_query = message_query.start_at(after_id)
+            message_query = message_query.start_at(after_id).limit_to_first(101)
+        else:
+            message_query = message_query.limit_to_last(100)
         records = message_query.get() or {}
         return [
             {"id": message_id, **message}
