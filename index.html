@@ -2156,7 +2156,7 @@
                         try {
                             vaultToSync = JSON.parse(candidate);
                             state.privateKey = await unlockVault(vaultToSync, password, result.user_id, publicKey);
-                            shouldSyncBackup = Boolean(imported && candidate === imported);
+                            shouldSyncBackup = true;
                             break;
                         } catch (error) {
                             unlockError = error;
