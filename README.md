@@ -123,6 +123,7 @@ python server.py
   * Accounts created with the current version automatically store a password-encrypted private-key backup with the account. You can sign in on another browser and unlock it with the same password.
   * Existing accounts need to sign in once from a browser that already has their key; that login uploads the encrypted backup. If the key exists only in an export file, import it and sign in to upload it.
   * Click **Backup** (bottom-left) to download an additional `commonroom-key-<ID>.json` copy. Keep it somewhere safe as a fallback.
+  * If a device reports that a backup belongs to another account, use **Backup** on a device where the chats still open, transfer that JSON file, then choose **Import backup** on the affected device and sign in to the matching account. Do not reset the key or create another account; without the original key, old encrypted messages cannot be decrypted.
   * The server stores only ciphertext, but anyone with both access to the backup and the account password can unlock it. If you forget the password, the encrypted key cannot be recovered. Cloud storage depends on the configured hosting and Firebase services and is not a substitute for keeping an independent backup.
 * **Auditing & Viewing Encrypted Payloads**:
   1. **Hosted admin viewer**: Visit `https://rajdohar2-stack.github.io/encripted-chat-system/database.html` to inspect records stored by Render/Firebase. Configure `COMMONROOM_ADMIN_USER_IDS` in Render and sign in with an allowlisted account. New records appear automatically within three seconds.

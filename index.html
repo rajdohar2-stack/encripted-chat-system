@@ -2007,7 +2007,15 @@
             return vault;
         }
         async function unlockVault(vault, password, userId, publicKey) {
-            if (!vault || vault.version !== 1 || vault.user_id !== userId) throw new Error("No matching private-key backup was found on this device.");
+            if (!vault) {
+                throw new Error(`No private-key backup is saved for account ID ${userId}. On the device where your chats still open, choose Backup, transfer the downloaded JSON file here, then choose Import backup and sign in again with the same account. Don't create a new account or reset your key.`);
+            }
+            if (vault.user_id !== userId) {
+                throw new Error(`This private-key backup belongs to account ID ${vault.user_id || "unknown"}, not ${userId}. On the device where your chats still open, choose Backup, transfer that JSON file here, then choose Import backup and sign in with the matching account. Your encrypted chats have not been deleted.`);
+            }
+            if (vault.version !== 1) {
+                throw new Error("This private-key backup format isn't supported. Import a valid Commonroom backup file from the device where your chats still open.");
+            }
             let jwk;
             try {
                 const material = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveKey"]);
