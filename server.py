@@ -8,6 +8,7 @@ import secrets
 import sqlite3
 import socket
 import ipaddress
+from concurrent.futures import ThreadPoolExecutor
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
@@ -1198,6 +1199,78 @@ def latest_message(
     return None
 
 
+def restore_user_conversations_from_firebase(user_id: str) -> None:
+    if not FIREBASE_MESSAGES:
+        return
+
+    firebase_users = FIREBASE_MESSAGES.reference("accounts/users").get() or {}
+    firebase_conversations = FIREBASE_MESSAGES.reference("accounts/conversations").get() or {}
+    firebase_members = FIREBASE_MESSAGES.reference("accounts/members").get() or {}
+    if not all(isinstance(records, dict) for records in (
+        firebase_users, firebase_conversations, firebase_members
+    )):
+        raise ValueError("Cloud account records have an invalid format.")
+
+    conversation_ids = {
+        str(member["conversation_id"])
+        for member in firebase_members.values()
+        if isinstance(member, dict)
+        and str(member.get("user_id", "")) == user_id
+        and str(member.get("conversation_id", "")).isdigit()
+    }
+    if not conversation_ids:
+        return
+
+    member_records = [
+        member for member in firebase_members.values()
+        if isinstance(member, dict)
+        and str(member.get("conversation_id", "")) in conversation_ids
+        and isinstance(member.get("user_id"), str)
+    ]
+    user_ids = {member["user_id"] for member in member_records}
+    with connect_db() as db:
+        for firebase_id in user_ids:
+            profile = firebase_users.get(firebase_id)
+            if not isinstance(profile, dict) or not {"username", "password_hash", "public_key"} <= profile.keys():
+                continue
+            public_key = profile["public_key"]
+            db.execute(
+                "INSERT OR IGNORE INTO users (id, username, password_hash, public_key, key_backup, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    str(profile.get("id", firebase_id)),
+                    str(profile["username"]),
+                    str(profile["password_hash"]),
+                    public_key if isinstance(public_key, str) else json.dumps(public_key),
+                    (
+                        str(profile["key_backup"])
+                        if isinstance(profile.get("key_backup"), str)
+                        else json.dumps(profile["key_backup"])
+                        if isinstance(profile.get("key_backup"), dict)
+                        else None
+                    ),
+                    str(profile.get("created_at", datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"))),
+                ),
+            )
+        for conversation_id in conversation_ids:
+            conversation = firebase_conversations.get(conversation_id)
+            if isinstance(conversation, dict):
+                db.execute(
+                    "INSERT OR IGNORE INTO conversations (id, title, created_at) VALUES (?, ?, ?)",
+                    (
+                        int(conversation_id),
+                        conversation.get("title"),
+                        str(conversation.get("created_at", datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"))),
+                    ),
+                )
+        for member in member_records:
+            if db.execute("SELECT 1 FROM users WHERE id = ?", (member["user_id"],)).fetchone():
+                db.execute(
+                    "INSERT OR IGNORE INTO members (conversation_id, user_id) VALUES (?, ?)",
+                    (int(member["conversation_id"]), member["user_id"]),
+                )
+
+
 def message_matches_conversation(
     message: dict[str, Any], conversation_id: int, member_ids: set[str]
 ) -> bool:
@@ -1316,7 +1389,31 @@ def list_conversations():
             "ORDER BY conversations.id DESC",
             (user["id"],),
         ).fetchall()
-        conversations = [conversation_summary(db, row, user["id"]) for row in rows]
+    if not rows and FIREBASE_MESSAGES:
+        try:
+            restore_user_conversations_from_firebase(user["id"])
+        except Exception as error:
+            import traceback
+            traceback.print_exc()
+            return jsonify(
+                error="Couldn't load chat history from cloud storage. Your chats have not been deleted; please retry."
+            ), 503
+        with connect_db() as db:
+            rows = db.execute(
+                "SELECT conversations.* FROM conversations JOIN members "
+                "ON members.conversation_id = conversations.id WHERE members.user_id = ? "
+                "ORDER BY conversations.id DESC",
+                (user["id"],),
+            ).fetchall()
+    def summarize(row: sqlite3.Row) -> dict[str, Any]:
+        with connect_db() as db:
+            return conversation_summary(db, row, user["id"])
+
+    if len(rows) > 1:
+        with ThreadPoolExecutor(max_workers=min(8, len(rows))) as executor:
+            conversations = list(executor.map(summarize, rows))
+    else:
+        conversations = [summarize(row) for row in rows]
     return jsonify(conversations=conversations)
 
 

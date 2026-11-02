@@ -1778,6 +1778,7 @@
             pollCycles: 0,
             loading: false,
             conversationLoadWarningShown: false,
+            conversationLoadError: null,
             requests: { incoming: [], sent: [] },
             notifTab: "incoming",
             incomingCount: 0
@@ -2132,6 +2133,7 @@
                         hash: "SHA-256"
                     }, false, ["decrypt"]);
                 } else {
+                    $("#authSubmitText").textContent = "Connecting...";
                     const resumable = state.resumableSession &&
                         state.resumableSession.user.username.toLocaleLowerCase() === username.toLocaleLowerCase();
                     result = resumable
@@ -2142,6 +2144,7 @@
                         });
                     state.token = result.token;
                     const publicKey = result.public_key;
+                    $("#authSubmitText").textContent = "Unlocking your key...";
                     const localVault = localStorage.getItem(vaultKey(result.user_id));
                     const imported = sessionStorage.getItem(`commonroom-import-${result.user_id}`);
                     let remoteBackup = null;
@@ -2161,6 +2164,7 @@
                         }
                     }
                     if (!state.privateKey) {
+                        $("#authSubmitText").textContent = "Finding your key backup...";
                         try {
                             remoteBackup = (await api("/key-backup")).backup;
                         } catch (error) {
@@ -2204,6 +2208,7 @@
                 }
                 localStorage.setItem("commonroom-token", state.token);
                 $("#password").value = "";
+                $("#authSubmitText").textContent = "Loading your chats...";
                 await enterApp({ id: result.user_id, username: result.username });
                 state.resumableSession = null;
                 if (backupSyncWarning) toast(backupSyncWarning);
@@ -2288,6 +2293,7 @@
             state.messageViewVersion += 1;
             state.messageLoads.clear();
             state.conversationLoadWarningShown = false;
+            state.conversationLoadError = null;
             state.requests = { incoming: [], sent: [] };
             state.incomingCount = 0;
             renderConversationList();
@@ -2325,6 +2331,8 @@
             $("#profileName").textContent = state.user.username;
             $("#profileId").textContent = state.user.id;
             $("#profileAvatar").textContent = state.user.username.slice(0, 1).toUpperCase();
+            state.conversationLoadError = "loading";
+            renderConversationList();
             await Promise.all([refreshRequests(), refreshConversations()]);
             state.pollCycles = 0;
             if (state.poll) clearTimeout(state.poll);
@@ -2348,6 +2356,7 @@
             try {
                 const response = await api("/conversations");
                 state.conversations = response.conversations;
+                state.conversationLoadError = null;
                 state.conversationLoadWarningShown = false;
                 renderConversationList();
                 if (state.activeConversation) {
@@ -2371,9 +2380,11 @@
                     showError("Your session ended. Please sign in again.");
                 } else {
                     console.warn("Conversation refresh failed:", error);
+                    state.conversationLoadError = error.message;
+                    renderConversationList();
                     if (!state.conversationLoadWarningShown) {
                         state.conversationLoadWarningShown = true;
-                        toast(`Couldn't refresh your conversations: ${error.message}`);
+                        toast(`Your chat history couldn't be loaded. It hasn't been deleted. ${error.message}`);
                     }
                 }
             }
@@ -2385,8 +2396,20 @@
             if (!state.conversations.length) {
                 const empty = document.createElement("div");
                 empty.className = "empty-list";
-                empty.textContent = "No chats yet. Start one with a friend's ID.";
+                empty.textContent = state.conversationLoadError === "loading"
+                    ? "Loading your chat history..."
+                    : state.conversationLoadError
+                        ? "Couldn't load your chats. Your history hasn't been deleted."
+                        : "No chats yet. Start one with a friend's ID.";
                 host.append(empty);
+                if (state.conversationLoadError && state.conversationLoadError !== "loading") {
+                    const retry = document.createElement("button");
+                    retry.className = "quiet-button";
+                    retry.type = "button";
+                    retry.textContent = "Retry loading chats";
+                    retry.addEventListener("click", refreshConversations);
+                    host.append(retry);
+                }
                 return;
             }
             for (const conversation of state.conversations) {
