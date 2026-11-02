@@ -2507,6 +2507,7 @@
     }
     function appendMessage(message, plaintext) {
       const host = $("#messages");
+      if (host.querySelector(`.message[data-message-id="${CSS.escape(String(message.id))}"]`)) return;
       const welcome = host.querySelector(".welcome"); if (welcome) welcome.remove();
       const article = document.createElement("article"); article.className = `message${message.sender_id === state.user.id ? " mine" : ""}${state.showEncrypted ? " show-encrypted" : ""}`;
       article.dataset.messageId = String(message.id);
@@ -2637,11 +2638,19 @@
       const conversation = state.activeConversation;
       if (!conversation) return toast("Open a conversation before sending a message.");
       if (state.loading) return toast("Please wait for the current message to finish sending.");
+      const viewVersion = state.messageViewVersion;
       state.loading = true; $("#sendButton").disabled = true;
       try {
         const encrypted = await encryptForMembers(bytes, conversation.members);
-        await api(`/conversations/${conversation.id}/messages`, { method: "POST", body: JSON.stringify({ ...encrypted, kind, attachment_name: attachmentName, attachment_type: attachmentType }) });
-        await loadMessages(true);
+        const response = await api(`/conversations/${conversation.id}/messages`, { method: "POST", body: JSON.stringify({ ...encrypted, kind, attachment_name: attachmentName, attachment_type: attachmentType }) });
+        if (state.activeConversation?.id === conversation.id && state.messageViewVersion === viewVersion) {
+          appendMessage(response.message, bytes);
+          const messageList = $("#messages");
+          messageList.scrollTop = messageList.scrollHeight;
+          await loadMessages(false);
+        } else {
+          await refreshConversations();
+        }
       } catch (error) { toast(error.message); }
       finally { state.loading = false; $("#sendButton").disabled = false; }
     }
