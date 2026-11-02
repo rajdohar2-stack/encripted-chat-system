@@ -477,6 +477,28 @@ def token_digest(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+class SessionStoreUnavailable(Exception):
+    pass
+
+
+PERSISTED_SESSION_HASHES: set[str] = set()
+
+
+def persist_session(token_hash: str, user_id: str) -> None:
+    if not FIREBASE_MESSAGES:
+        return
+    try:
+        FIREBASE_MESSAGES.reference(f"accounts/sessions/{token_hash}").set({
+            "user_id": user_id,
+            "created_at": datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
+        })
+        PERSISTED_SESSION_HASHES.add(token_hash)
+    except Exception as error:
+        raise SessionStoreUnavailable(
+            "The session could not be saved to cloud storage. Please try signing in again."
+        ) from error
+
+
 def user_payload(row: sqlite3.Row) -> dict[str, Any]:
     public_key = row["public_key"]
     if isinstance(public_key, str):
@@ -524,12 +546,40 @@ def current_user() -> sqlite3.Row | None:
     if not token:
         g.current_user = None
         return None
+    token_hash = token_digest(token)
     with connect_db() as db:
         g.current_user = db.execute(
             "SELECT users.* FROM users JOIN sessions ON sessions.user_id = users.id "
             "WHERE sessions.token_hash = ?",
-            (token_digest(token),),
+            (token_hash,),
         ).fetchone()
+        if (
+            g.current_user is not None
+            and FIREBASE_MESSAGES
+            and token_hash not in PERSISTED_SESSION_HASHES
+        ):
+            persist_session(token_hash, g.current_user["id"])
+        if g.current_user is None and FIREBASE_MESSAGES:
+            try:
+                session = FIREBASE_MESSAGES.reference(
+                    f"accounts/sessions/{token_hash}"
+                ).get()
+            except Exception as error:
+                raise SessionStoreUnavailable(
+                    "Could not check your saved session with cloud storage. Please retry."
+                ) from error
+            if isinstance(session, dict) and isinstance(session.get("user_id"), str):
+                db.execute(
+                    "INSERT OR IGNORE INTO sessions (token_hash, user_id) VALUES (?, ?)",
+                    (token_hash, session["user_id"]),
+                )
+                g.current_user = db.execute(
+                    "SELECT users.* FROM users JOIN sessions ON sessions.user_id = users.id "
+                    "WHERE sessions.token_hash = ?",
+                    (token_hash,),
+                ).fetchone()
+                if g.current_user is not None:
+                    PERSISTED_SESSION_HASHES.add(token_hash)
     return g.current_user
 
 
@@ -542,10 +592,12 @@ def require_user() -> sqlite3.Row | None:
 
 def issue_session(db: sqlite3.Connection, user_id: str) -> str:
     token = secrets.token_urlsafe(32)
+    token_hash = token_digest(token)
     db.execute(
         "INSERT INTO sessions (token_hash, user_id) VALUES (?, ?)",
-        (token_digest(token), user_id),
+        (token_hash, user_id),
     )
+    persist_session(token_hash, user_id)
     return token
 
 
@@ -813,8 +865,17 @@ def logout():
     authorization = request.headers.get("Authorization", "")
     token = authorization.removeprefix("Bearer ").strip()
     if token:
+        token_hash = token_digest(token)
+        if FIREBASE_MESSAGES:
+            try:
+                FIREBASE_MESSAGES.reference(f"accounts/sessions/{token_hash}").delete()
+            except Exception as error:
+                raise SessionStoreUnavailable(
+                    "Could not safely sign out from cloud storage. Please try again."
+                ) from error
+            PERSISTED_SESSION_HASHES.discard(token_hash)
         with connect_db() as db:
-            db.execute("DELETE FROM sessions WHERE token_hash = ?", (token_digest(token),))
+            db.execute("DELETE FROM sessions WHERE token_hash = ?", (token_hash,))
     return jsonify(ok=True)
 
 
@@ -1780,6 +1841,11 @@ def send_message(conversation_id: int):
 @app.errorhandler(413)
 def file_too_large(_error):
     return jsonify(error="Upload is too large. Images must be 8 MB or smaller."), 413
+
+
+@app.errorhandler(SessionStoreUnavailable)
+def session_store_unavailable(error):
+    return jsonify(error=str(error)), 503
 
 
 @app.errorhandler(Exception)
