@@ -39,6 +39,8 @@ Keep both tasks and this PC online while using the link. Stop the tunnel task wi
 
 ## Use the GitHub Pages site from anywhere
 
+This browser keeps its API session until you sign out. After reopening or refreshing the page, enter your password to unlock your encrypted private key and resume the session. Messages refresh every five seconds, conversation previews every fifteen seconds, and chat requests every thirty seconds to reduce unnecessary network traffic. Use **Group chat** in the new-chat window to choose members and create a named group.
+
 Open the GitHub Pages frontend and sign in with the same account to see its conversations after closing the browser or signing in from another device. Messages and account/conversation data are stored by the hosted API in Firebase; each signed-in account only receives conversations where it is a member. The server and browser both check that each message sender and its recipient keys match the conversation members before displaying it. Signing out clears the conversation view before another account can be shown.
 
 If the page says it cannot reach the hosted API, Render may be starting after a period of inactivity. Wait briefly, then retry. Check the [API health endpoint](https://encripted-chat-system.onrender.com/api/health); it should return `ok: true` and `message_store: "firebase"`. If the health endpoint does not respond, the hosted service needs attention before the chat page can load or send messages.

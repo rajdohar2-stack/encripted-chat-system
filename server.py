@@ -1214,7 +1214,7 @@ def read_stored_messages(conversation_id: int, after_id: str) -> list[dict[str, 
     if FIREBASE_MESSAGES:
         message_query = FIREBASE_MESSAGES.reference(
             f"conversations/{conversation_id}/messages"
-        ).order_by_key()
+        ).order_by_key().limit_to_first(100)
         if after_id and after_id != "0":
             message_query = message_query.start_at(after_id)
         records = message_query.get() or {}
@@ -1242,7 +1242,7 @@ def read_message_deletions(conversation_id: int, after_id: str) -> list[dict[str
     if FIREBASE_MESSAGES:
         deletion_query = FIREBASE_MESSAGES.reference(
             f"conversations/{conversation_id}/deletions"
-        ).order_by_key()
+        ).order_by_key().limit_to_first(100)
         if after_id and after_id != "0":
             deletion_query = deletion_query.start_at(after_id)
         records = deletion_query.get() or {}
