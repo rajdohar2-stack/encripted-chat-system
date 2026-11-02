@@ -1229,10 +1229,28 @@ def restore_user_conversations_from_firebase(user_id: str) -> None:
     ]
     user_ids = {member["user_id"] for member in member_records}
     with connect_db() as db:
+        local_user_ids = {
+            row["id"] for row in db.execute("SELECT id FROM users").fetchall()
+        }
+        profiles = {
+            firebase_id: profile
+            for firebase_id in user_ids
+            if isinstance((profile := firebase_users.get(firebase_id)), dict)
+            and {"username", "password_hash", "public_key"} <= profile.keys()
+        }
+        missing_profiles = user_ids - local_user_ids - set(profiles)
+        if missing_profiles:
+            raise ValueError("Cloud conversation members are missing account records.")
+        if any(
+            not isinstance(firebase_conversations.get(conversation_id), dict)
+            for conversation_id in conversation_ids
+        ):
+            raise ValueError("Cloud conversation details are missing.")
+
         for firebase_id in user_ids:
-            profile = firebase_users.get(firebase_id)
-            if not isinstance(profile, dict) or not {"username", "password_hash", "public_key"} <= profile.keys():
+            if firebase_id not in profiles:
                 continue
+            profile = profiles[firebase_id]
             public_key = profile["public_key"]
             db.execute(
                 "INSERT OR IGNORE INTO users (id, username, password_hash, public_key, key_backup, created_at) "
@@ -1254,21 +1272,19 @@ def restore_user_conversations_from_firebase(user_id: str) -> None:
             )
         for conversation_id in conversation_ids:
             conversation = firebase_conversations.get(conversation_id)
-            if isinstance(conversation, dict):
-                db.execute(
-                    "INSERT OR IGNORE INTO conversations (id, title, created_at) VALUES (?, ?, ?)",
-                    (
-                        int(conversation_id),
-                        conversation.get("title"),
-                        str(conversation.get("created_at", datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"))),
-                    ),
+            db.execute(
+                "INSERT OR IGNORE INTO conversations (id, title, created_at) VALUES (?, ?, ?)",
+                (
+                    int(conversation_id),
+                    conversation.get("title"),
+                    str(conversation.get("created_at", datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"))),
                 )
+            )
         for member in member_records:
-            if db.execute("SELECT 1 FROM users WHERE id = ?", (member["user_id"],)).fetchone():
-                db.execute(
-                    "INSERT OR IGNORE INTO members (conversation_id, user_id) VALUES (?, ?)",
-                    (int(member["conversation_id"]), member["user_id"]),
-                )
+            db.execute(
+                "INSERT OR IGNORE INTO members (conversation_id, user_id) VALUES (?, ?)",
+                (int(member["conversation_id"]), member["user_id"]),
+            )
 
 
 def message_matches_conversation(
